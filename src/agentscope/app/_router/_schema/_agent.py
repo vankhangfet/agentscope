@@ -5,7 +5,7 @@ import warnings
 from pydantic import BaseModel, Field
 
 from ....agent import ContextConfig, ReActConfig
-from ...storage import InviteConfig
+from ...storage import ChatModelConfig, InviteConfig
 from ..._service import AgentView
 
 
@@ -32,6 +32,20 @@ class CreateAgentRequest(BaseModel):
             ":class:`InviteConfig` — enforces the "
             "``invitable ⇒ non-empty description`` invariant."
         ),
+    )
+    chat_model_config: ChatModelConfig | None = Field(
+        default=None,
+        description="Default model configuration for this agent.",
+    )
+
+    tools: list[str] = Field(
+        default_factory=list,
+        description="Workspace MCP tool names the agent may use.",
+    )
+
+    memory: bool = Field(
+        default=False,
+        description="Enable long-term memory.",
     )
 
 
@@ -67,6 +81,20 @@ class UpdateAgentRequest(BaseModel):
             "object to update; omit to leave both invitable-related "
             "fields unchanged."
         ),
+    )
+    chat_model_config: ChatModelConfig | None = Field(
+        default=None,
+        description="New default model configuration.",
+    )
+
+    tools: list[str] | None = Field(
+        default=None,
+        description="New tool list.",
+    )
+
+    memory: bool | None = Field(
+        default=None,
+        description="Enable or disable long-term memory.",
     )
 
 

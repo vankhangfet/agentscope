@@ -7,6 +7,7 @@ from pydantic.json_schema import SkipJsonSchema
 
 from ...._utils._common import _generate_id
 from ._base import _RecordBase
+from ._session import ChatModelConfig
 from ....agent import ContextConfig, ReActConfig
 
 
@@ -106,6 +107,27 @@ class AgentData(BaseModel):
         default_factory=InviteConfig,
         description="The invite config for the agent.",
         title="Invite Config",
+    )
+
+    chat_model_config: ChatModelConfig | None = Field(
+        default=None,
+        description=(
+            "Default model for this agent's sessions; None keeps the "
+            "session-level config in charge."
+        ),
+        title="Chat Model Config",
+    )
+
+    tools: list[str] = Field(
+        default_factory=list,
+        description="Names of workspace MCP tools the agent may use.",
+        title="Tools",
+    )
+
+    memory: bool = Field(
+        default=False,
+        description="Enable long-term memory for this agent.",
+        title="Memory",
     )
 
 

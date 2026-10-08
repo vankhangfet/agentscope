@@ -202,6 +202,9 @@ async def create_agent(
             context_config=body.context_config,
             react_config=body.react_config,
             invite_config=body.invite_config,
+            chat_model_config=body.chat_model_config,
+            tools=body.tools,
+            memory=body.memory,
         )
     except ValidationError as exc:
         raise HTTPException(
