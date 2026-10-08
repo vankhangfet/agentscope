@@ -5,6 +5,7 @@ The graph mirrors React Flow's shape (nodes carry canvas ``position``,
 edges carry ids) so the builder UI persists what it renders; the engine
 reads only ``config`` and ignores presentation fields.
 """
+from collections import Counter
 from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, Field, model_validator
@@ -47,7 +48,10 @@ class AgentNodeConfig(BaseModel):
 class ConditionBranch(BaseModel):
     """One arm of a condition node."""
 
-    label: str = Field(description="Matches an outgoing edge's branch.")
+    label: str = Field(
+        min_length=1,
+        description="Matches an outgoing edge's branch.",
+    )
 
     rule: str = Field(
         description=(
@@ -171,7 +175,10 @@ WorkflowNodeConfig = Annotated[
 class WorkflowNode(BaseModel):
     """One step on the canvas."""
 
-    id: str = Field(description="Unique node id within the workflow.")
+    id: str = Field(
+        min_length=1,
+        description="Unique node id within the workflow.",
+    )
 
     position: WorkflowPosition = Field(
         default_factory=WorkflowPosition,
@@ -184,7 +191,10 @@ class WorkflowNode(BaseModel):
 class WorkflowEdge(BaseModel):
     """A directed connection between two nodes."""
 
-    id: str = Field(description="Unique edge id within the workflow.")
+    id: str = Field(
+        min_length=1,
+        description="Unique edge id within the workflow.",
+    )
 
     source: str = Field(description="Outgoing node id.")
 
@@ -221,11 +231,16 @@ def validate_workflow_graph(graph: WorkflowGraph) -> list[str]:
     """
     problems: list[str] = []
 
-    node_ids = [node.id for node in graph.nodes]
-    duplicates = {i for i in node_ids if node_ids.count(i) > 1}
+    node_counts = Counter(node.id for node in graph.nodes)
+    duplicates = {i for i, c in node_counts.items() if c > 1}
     if duplicates:
         problems.append(f"Duplicate node ids: {sorted(duplicates)}")
-    known = set(node_ids)
+    known = set(node_counts)
+
+    edge_counts = Counter(edge.id for edge in graph.edges)
+    edge_dupes = {i for i, c in edge_counts.items() if c > 1}
+    if edge_dupes:
+        problems.append(f"Duplicate edge ids: {sorted(edge_dupes)}")
 
     outgoing: dict[str, list[WorkflowEdge]] = {i: [] for i in known}
     for edge in graph.edges:
@@ -247,10 +262,19 @@ def validate_workflow_graph(graph: WorkflowGraph) -> list[str]:
     for node in graph.nodes:
         out = outgoing[node.id]
         if isinstance(node.config, ConditionNodeConfig):
+            labels = [b.label for b in node.config.branches]
+            dupes = {
+                label for label, c in Counter(labels).items() if c > 1
+            }
+            if dupes:
+                problems.append(
+                    f"Condition node {node.id} has duplicate branch "
+                    f"labels: {sorted(dupes)}",
+                )
             _check_branches(
                 node.id,
                 out,
-                {b.label for b in node.config.branches},
+                set(labels),
                 problems,
                 unlabeled_is_error=True,
             )
@@ -317,7 +341,13 @@ def _check_branches(
     unlabeled_is_error: bool,
 ) -> set[str]:
     """Match a branching node's labels against its outgoing edges."""
-    labelled = {e.branch for e in out if e.branch is not None}
+    branch_counts = Counter(e.branch for e in out if e.branch is not None)
+    for label, count in branch_counts.items():
+        if count > 1:
+            problems.append(
+                f"Node {node_id} has {count} edges for branch {label!r}",
+            )
+    labelled = set(branch_counts)
     for missing in labels - labelled:
         problems.append(
             f"Branching node {node_id} has no edge for branch {missing!r}",

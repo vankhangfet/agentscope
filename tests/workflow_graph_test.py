@@ -3,15 +3,19 @@
 anything is persisted. Pure functions, no I/O."""
 from unittest import TestCase
 
+from pydantic import ValidationError
+
 from agentscope.app.storage import (
     AgentNodeConfig,
     ConditionBranch,
     ConditionNodeConfig,
     HumanApprovalNodeConfig,
     LoopNodeConfig,
+    WorkflowData,
     WorkflowEdge,
     WorkflowGraph,
     WorkflowNode,
+    WorkflowRecord,
     validate_workflow_graph,
 )
 
@@ -39,7 +43,7 @@ def _e(
     source: str,
     target: str,
     branch: str | None = None,
-):
+) -> WorkflowEdge:
     return WorkflowEdge(
         id=edge_id,
         source=source,
@@ -89,6 +93,23 @@ class WorkflowGraphValidationTest(TestCase):
             ),
         )
 
+    def test_duplicate_edge_ids(self) -> None:
+        graph = _graph(
+            _agent("a"),
+            _agent("b"),
+            _agent("c"),
+            edges={
+                "first": _e("e1", "a", "b"),
+                "second": _e("e1", "b", "c"),
+            },
+        )
+        self.assertTrue(
+            any(
+                "Duplicate edge ids" in p
+                for p in validate_workflow_graph(graph)
+            ),
+        )
+
     def test_edges_must_reference_known_nodes(self) -> None:
         graph = _graph(_agent("a"), edges={"e1": _e("e1", "a", "ghost")})
         problems = validate_workflow_graph(graph)
@@ -133,6 +154,47 @@ class WorkflowGraphValidationTest(TestCase):
         problems = validate_workflow_graph(graph)
         self.assertTrue(
             any("unknown branch 'surprise'" in p for p in problems),
+        )
+
+    def test_duplicate_branch_labels_in_one_condition(self) -> None:
+        cond = WorkflowNode(
+            id="c",
+            config=ConditionNodeConfig(
+                branches=[
+                    ConditionBranch(label="yes", rule="input.a == true"),
+                    ConditionBranch(label="yes", rule="input.b == true"),
+                ],
+            ),
+        )
+        graph = _graph(
+            cond,
+            _agent("x"),
+            edges={"e1": _e("e1", "c", "x", branch="yes")},
+        )
+        problems = validate_workflow_graph(graph)
+        self.assertTrue(
+            any("duplicate branch labels" in p for p in problems),
+        )
+
+    def test_two_edges_for_one_branch_are_ambiguous(self) -> None:
+        cond = WorkflowNode(
+            id="c",
+            config=ConditionNodeConfig(
+                branches=[ConditionBranch(label="yes", rule="true")],
+            ),
+        )
+        graph = _graph(
+            cond,
+            _agent("x"),
+            _agent("y"),
+            edges={
+                "e1": _e("e1", "c", "x", branch="yes"),
+                "e2": _e("e2", "c", "y", branch="yes"),
+            },
+        )
+        problems = validate_workflow_graph(graph)
+        self.assertTrue(
+            any("2 edges for branch 'yes'" in p for p in problems),
         )
 
     def test_condition_node_rejects_unlabeled_outgoing_edge(self) -> None:
@@ -216,5 +278,89 @@ class WorkflowGraphValidationTest(TestCase):
             LoopNodeConfig(mode="retry_until", verifier_prompt="good?")
 
     def test_empty_graph_is_rejected_by_the_schema(self) -> None:
-        with self.assertRaises(Exception):
+        with self.assertRaises(ValidationError):
             WorkflowGraph(nodes=[], edges=[])
+
+
+class WorkflowGraphModelTest(TestCase):
+    """The models themselves, beyond the validation rules."""
+
+    def test_record_round_trips_through_json(self) -> None:
+        record = WorkflowRecord(
+            user_id="user-1",
+            data=WorkflowData(
+                name="One of each",
+                description="A graph using every node config.",
+                graph=WorkflowGraph(
+                    nodes=[
+                        WorkflowNode(
+                            id="start",
+                            config=AgentNodeConfig(
+                                agent_id="agent-1",
+                            ),
+                        ),
+                        WorkflowNode(
+                            id="check",
+                            config=ConditionNodeConfig(
+                                branches=[
+                                    ConditionBranch(
+                                        label="yes",
+                                        rule="input.ok == true",
+                                    ),
+                                ],
+                            ),
+                        ),
+                        WorkflowNode(
+                            id="fan",
+                            config=LoopNodeConfig(
+                                mode="iterate",
+                                list_template="{{input.items}}",
+                            ),
+                        ),
+                        WorkflowNode(
+                            id="gate",
+                            config=HumanApprovalNodeConfig(
+                                timeout_branch="escalate",
+                            ),
+                        ),
+                    ],
+                    edges=[
+                        WorkflowEdge(
+                            id="e1",
+                            source="start",
+                            target="check",
+                        ),
+                        WorkflowEdge(
+                            id="e2",
+                            source="check",
+                            target="fan",
+                            branch="yes",
+                        ),
+                        WorkflowEdge(
+                            id="e3",
+                            source="fan",
+                            target="gate",
+                        ),
+                    ],
+                ),
+            ),
+        )
+        revived = WorkflowRecord.model_validate_json(
+            record.model_dump_json(),
+        )
+        self.assertEqual(revived, record)
+
+    def test_deep_chain_does_not_recurse(self) -> None:
+        chain = [_agent(f"n{i}") for i in range(10_000)]
+        edges = [
+            WorkflowEdge(id=f"e{i}", source=f"n{i}", target=f"n{i + 1}")
+            for i in range(10_000 - 1)
+        ]
+        edges.append(
+            WorkflowEdge(id="back", source="n9999", target="n0"),
+        )
+        problems = validate_workflow_graph(
+            WorkflowGraph(nodes=chain, edges=edges),
+        )
+        self.assertEqual(len(problems), 1)
+        self.assertIn("Cycle detected", problems[0])
