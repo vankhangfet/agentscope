@@ -52,6 +52,19 @@ from ._sop import (
 )
 from ._team import TeamRecord, TeamData, TeamMember
 from ._user import UserRecord
+from ._workflow import (
+    AgentNodeConfig,
+    ConditionBranch,
+    ConditionNodeConfig,
+    HumanApprovalNodeConfig,
+    LoopNodeConfig,
+    WorkflowData,
+    WorkflowEdge,
+    WorkflowGraph,
+    WorkflowNode,
+    WorkflowPosition,
+    WorkflowRecord,
+)
 
 __all__ = [
     "AgentData",
@@ -101,4 +114,16 @@ __all__ = [
     "TeamMember",
     "UserRecord",
     "InviteConfig",
+    # The workflow graph models
+    "AgentNodeConfig",
+    "ConditionBranch",
+    "ConditionNodeConfig",
+    "HumanApprovalNodeConfig",
+    "LoopNodeConfig",
+    "WorkflowData",
+    "WorkflowEdge",
+    "WorkflowGraph",
+    "WorkflowNode",
+    "WorkflowPosition",
+    "WorkflowRecord",
 ]

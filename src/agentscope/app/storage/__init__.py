@@ -52,7 +52,22 @@ from ._model import (
     UserRecord,
     TeamMember,
     InviteConfig,
+    AgentNodeConfig,
+    ConditionBranch,
+    ConditionNodeConfig,
+    HumanApprovalNodeConfig,
+    LoopNodeConfig,
+    WorkflowData,
+    WorkflowEdge,
+    WorkflowGraph,
+    WorkflowNode,
+    WorkflowPosition,
+    WorkflowRecord,
 )
+
+# A validation helper rather than a model, so it comes straight from its
+# module instead of riding the model re-exports above.
+from ._model._workflow import validate_workflow_graph
 
 if TYPE_CHECKING:
     # Re-exported for static type checkers only; at runtime the class is
@@ -133,4 +148,17 @@ __all__ = [
     "ScheduleData",
     "ScheduleRecord",
     "ScheduleSource",
+    # The workflow graph models
+    "AgentNodeConfig",
+    "ConditionBranch",
+    "ConditionNodeConfig",
+    "HumanApprovalNodeConfig",
+    "LoopNodeConfig",
+    "WorkflowData",
+    "WorkflowEdge",
+    "WorkflowGraph",
+    "WorkflowNode",
+    "WorkflowPosition",
+    "WorkflowRecord",
+    "validate_workflow_graph",
 ]
