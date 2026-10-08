@@ -1787,7 +1787,8 @@ class RedisStorage(StorageBase):
         return WorkflowRecord.model_validate_json(raw) if raw else None
 
     async def list_workflows(self, user_id: str) -> list[WorkflowRecord]:
-        """Return every workflow in the user's index that still exists."""
+        """Return the user's workflows, oldest first — Redis set members
+        come back unordered, so pin creation order explicitly."""
         ids = await self._client.smembers(
             self._key(self.key_config.workflow_index, user_id=user_id),
         )
@@ -1796,7 +1797,7 @@ class RedisStorage(StorageBase):
             record = await self.get_workflow(user_id, workflow_id)
             if record is not None:
                 records.append(record)
-        return records
+        return sorted(records, key=lambda _: _.created_at)
 
     async def delete_workflow(
         self,

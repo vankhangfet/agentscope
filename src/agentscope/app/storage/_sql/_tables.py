@@ -234,6 +234,20 @@ class SOPRunRow(_JsonRecordMixin):
     _index_paths: ClassVar[dict[str, str]] = {"phase": "state.phase"}
 
 
+class WorkflowRow(_JsonRecordMixin):
+    """One row per :class:`~agentscope.app.storage.WorkflowRecord`."""
+
+    __tablename__ = "workflows"
+
+    user_id: Mapped[str] = mapped_column(
+        String(_ID_LEN),
+        nullable=False,
+        index=True,
+    )
+
+    _indexed_fields = ("user_id",)
+
+
 class ScheduleRow(_JsonRecordMixin):
     """One row per :class:`~agentscope.app.storage.ScheduleRecord`."""
 
