@@ -187,6 +187,24 @@ class WorkflowGraphValidationTest(TestCase):
         problems = validate_workflow_graph(graph)
         self.assertTrue(any("escalate" in p for p in problems))
 
+    def test_approval_timeout_branch_with_matching_edge_passes(self) -> None:
+        approval = WorkflowNode(
+            id="h",
+            config=HumanApprovalNodeConfig(timeout_branch="escalate"),
+        )
+        graph = _graph(
+            _agent("a"),
+            approval,
+            _agent("out"),
+            edges={
+                "e1": _e("e1", "a", "h"),
+                "e2": _e("e2", "h", "out", branch="approve"),
+                "e3": _e("e3", "h", "out", branch="reject"),
+                "e4": _e("e4", "h", "out", branch="escalate"),
+            },
+        )
+        self.assertEqual(validate_workflow_graph(graph), [])
+
     def test_iterate_loop_requires_list_template(self) -> None:
         with self.assertRaises(ValueError):
             LoopNodeConfig(mode="iterate", list_template="")

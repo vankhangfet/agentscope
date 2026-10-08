@@ -255,14 +255,17 @@ def validate_workflow_graph(graph: WorkflowGraph) -> list[str]:
                 unlabeled_is_error=True,
             )
         elif isinstance(node.config, HumanApprovalNodeConfig):
+            cfg = node.config
+            allowed = {"approve", "reject"}
+            if cfg.timeout_branch != "fail":
+                allowed.add(cfg.timeout_branch)
             labelled = _check_branches(
                 node.id,
                 out,
-                {"approve", "reject"},
+                allowed,
                 problems,
                 unlabeled_is_error=True,
             )
-            cfg = node.config
             if (
                 cfg.timeout_branch != "fail"
                 and cfg.timeout_branch not in labelled
