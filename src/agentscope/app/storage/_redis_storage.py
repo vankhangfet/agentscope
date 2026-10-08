@@ -28,6 +28,7 @@ from ._model import (
     SOPRecord,
     SOPRunRecord,
     TeamRecord,
+    WorkflowRecord,
 )
 from ._utils import _dump_with_secrets
 from ...credential import CredentialBase
@@ -123,6 +124,9 @@ class RedisStorage(StorageBase):
         sop_run_index: str = "agentscope:user:{user_id}:sop_runs"
         # Per-procedure run index.
         sop_run_sop_index: str = "agentscope:user:{user_id}:sop:{sop_id}:runs"
+
+        workflow: str = "agentscope:user:{user_id}:workflow:{workflow_id}"
+        workflow_index: str = "agentscope:user:{user_id}:workflows"
 
         team: str = "agentscope:user:{user_id}:team:{team_id}"
         team_index: str = "agentscope:user:{user_id}:teams"
@@ -1741,6 +1745,77 @@ class RedisStorage(StorageBase):
             ),
         )
         return True
+
+    # ------------------------------------------------------------------
+    # Workflow persistence
+    # ------------------------------------------------------------------
+
+    async def upsert_workflow(
+        self,
+        user_id: str,
+        record: WorkflowRecord,
+    ) -> WorkflowRecord:
+        """Persist a workflow and index it under the user."""
+        record.updated_at = datetime.now()
+        await self._set_with_ttl(
+            self._key(
+                self.key_config.workflow,
+                user_id=user_id,
+                workflow_id=record.id,
+            ),
+            record.model_dump_json(),
+        )
+        await self._client.sadd(
+            self._key(self.key_config.workflow_index, user_id=user_id),
+            record.id,
+        )
+        return record
+
+    async def get_workflow(
+        self,
+        user_id: str,
+        workflow_id: str,
+    ) -> WorkflowRecord | None:
+        """Fetch one workflow by id."""
+        raw = await self._client.get(
+            self._key(
+                self.key_config.workflow,
+                user_id=user_id,
+                workflow_id=workflow_id,
+            ),
+        )
+        return WorkflowRecord.model_validate_json(raw) if raw else None
+
+    async def list_workflows(self, user_id: str) -> list[WorkflowRecord]:
+        """Return every workflow in the user's index that still exists."""
+        ids = await self._client.smembers(
+            self._key(self.key_config.workflow_index, user_id=user_id),
+        )
+        records = []
+        for workflow_id in ids:
+            record = await self.get_workflow(user_id, workflow_id)
+            if record is not None:
+                records.append(record)
+        return records
+
+    async def delete_workflow(
+        self,
+        user_id: str,
+        workflow_id: str,
+    ) -> bool:
+        """Delete a workflow."""
+        await self._client.srem(
+            self._key(self.key_config.workflow_index, user_id=user_id),
+            workflow_id,
+        )
+        deleted = await self._client.delete(
+            self._key(
+                self.key_config.workflow,
+                user_id=user_id,
+                workflow_id=workflow_id,
+            ),
+        )
+        return bool(deleted)
 
     # ------------------------------------------------------------------
     # Team persistence

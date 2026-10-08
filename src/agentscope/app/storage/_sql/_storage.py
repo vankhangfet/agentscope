@@ -37,6 +37,7 @@ from .._model import (
     SOPRecord,
     SOPRunRecord,
     TeamRecord,
+    WorkflowRecord,
 )
 from .._utils import _dump_with_secrets
 from ._mappers import _from_record, _to_record
@@ -2208,3 +2209,47 @@ class AsyncSQLAlchemyStorage(StorageBase):
                 .all()
             )
         return [_to_record(r, KnowledgeDocumentRecord) for r in rows]
+
+    # ------------------------------------------------------------------
+    # Workflow persistence
+    #
+    # Temporary stubs: they only exist so the class stays instantiable
+    # now that ``StorageBase`` declares the workflow methods abstract.
+    # The real SQL implementation lands in Task 4.
+    # ------------------------------------------------------------------
+
+    async def upsert_workflow(
+        self,
+        user_id: str,
+        record: WorkflowRecord,
+    ) -> WorkflowRecord:
+        """Not implemented yet — SQL workflow storage lands in Task 4."""
+        raise NotImplementedError(
+            "SQL workflow storage lands in Task 4.",
+        )
+
+    async def get_workflow(
+        self,
+        user_id: str,
+        workflow_id: str,
+    ) -> WorkflowRecord | None:
+        """Not implemented yet — SQL workflow storage lands in Task 4."""
+        raise NotImplementedError(
+            "SQL workflow storage lands in Task 4.",
+        )
+
+    async def list_workflows(self, user_id: str) -> list[WorkflowRecord]:
+        """Not implemented yet — SQL workflow storage lands in Task 4."""
+        raise NotImplementedError(
+            "SQL workflow storage lands in Task 4.",
+        )
+
+    async def delete_workflow(
+        self,
+        user_id: str,
+        workflow_id: str,
+    ) -> bool:
+        """Not implemented yet — SQL workflow storage lands in Task 4."""
+        raise NotImplementedError(
+            "SQL workflow storage lands in Task 4.",
+        )
