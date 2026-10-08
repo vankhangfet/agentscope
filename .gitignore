@@ -166,3 +166,6 @@ yarn-error.log*
 lerna-debug.log*
 
 **/workspaces/
+
+# Superpowers brainstorming artifacts (local mockups)
+.superpowers/
