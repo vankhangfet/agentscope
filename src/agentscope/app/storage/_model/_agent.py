@@ -6,9 +6,9 @@ from pydantic import Field, BaseModel, model_validator
 from pydantic.json_schema import SkipJsonSchema
 
 from ...._utils._common import _generate_id
+from ....agent import ContextConfig, ReActConfig
 from ._base import _RecordBase
 from ._session import ChatModelConfig
-from ....agent import ContextConfig, ReActConfig
 
 
 class InviteConfig(BaseModel):

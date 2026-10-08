@@ -84,7 +84,10 @@ class UpdateAgentRequest(BaseModel):
     )
     chat_model_config: ChatModelConfig | None = Field(
         default=None,
-        description="New default model configuration.",
+        description=(
+            "New default model configuration; an explicit ``null`` "
+            "clears it back to session-level inheritance."
+        ),
     )
 
     tools: list[str] | None = Field(

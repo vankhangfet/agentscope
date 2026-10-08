@@ -1833,4 +1833,4 @@ git commit -m "feat(workflow): workflow CRUD REST endpoints"
 
 - **Plan 2 — Engine:** `WorkflowRunRecord` + node states, frontier scheduler, the four node handlers, run/approve/cancel/retry endpoints, SSE events, crash resume.
 - **Plan 3 — Triggers:** scheduler → run, `run_workflow` chat tool, `POST /credential/test`.
-- **Plan 4 — Frontend:** React Flow builder, run view, approvals inbox, agent template form fields.
+- **Plan 4 — Frontend:** React Flow builder, run view, approvals inbox, agent template form fields. **Recorded debt from Task 2 (quality review):** `AgentData`'s new `tools` (array) and `chat_model_config` (nested object) fields currently render as plain text inputs in the schema-driven agent form (`SchemaForm.tsx` falls back to `<Input>` for non-scalar props) and the agent dialogs don't submit them — dead controls until Plan 4 ships proper widgets. Plan 4 must add: array/object widgets in `SchemaForm` (or a guard skipping unrepresentable props), dialog submit mapping for the three fields, and note the `/agent/schema/v2` "adding a field is enough" promise now carries a non-scalar caveat.

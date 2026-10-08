@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 from agentscope.app import create_app
 from agentscope.app.message_bus import RedisMessageBus
-from agentscope.app.storage import RedisStorage
+from agentscope.app.storage import AgentData, RedisStorage
 from agentscope.app.workspace_manager import LocalWorkspaceManager
 
 HEADERS = {"X-User-ID": "alice"}
@@ -131,3 +131,79 @@ class AgentModelConfigTest(IsolatedAsyncioTestCase):
         data = self._fetch_data(agent_id)
         self.assertEqual(data["chat_model_config"]["model"], "qwen-max")
         self.assertTrue(data["memory"])
+
+    def test_patch_can_clear_model_config_with_explicit_null(self) -> None:
+        created = self._client.post(
+            "/agent/",
+            json={
+                "name": "writer",
+                "chat_model_config": {
+                    "type": "openai_credential",
+                    "credential_id": "c-1",
+                    "model": "gpt-4o",
+                    "parameters": {},
+                },
+                "tools": ["web"],
+            },
+            headers=HEADERS,
+        ).json()
+        agent_id = created["agent_id"]
+        patched = self._client.patch(
+            f"/agent/{agent_id}",
+            json={"chat_model_config": None},
+            headers=HEADERS,
+        )
+        self.assertEqual(patched.status_code, 200)
+        data = self._fetch_data(agent_id)
+        # Null is a persisted state in its own right — "the session
+        # level config is in charge" — not just an omitted field.
+        self.assertIsNone(data["chat_model_config"])
+        self.assertEqual(data["name"], "writer")
+        self.assertEqual(data["tools"], ["web"])
+
+    def test_partial_patch_preserves_other_fields(self) -> None:
+        created = self._client.post(
+            "/agent/",
+            json={
+                "name": "writer",
+                "chat_model_config": {
+                    "type": "openai_credential",
+                    "credential_id": "c-1",
+                    "model": "gpt-4o",
+                    "parameters": {},
+                },
+                "tools": ["web", "files"],
+                "memory": True,
+            },
+            headers=HEADERS,
+        ).json()
+        agent_id = created["agent_id"]
+        patched = self._client.patch(
+            f"/agent/{agent_id}",
+            json={"tools": ["web"]},
+            headers=HEADERS,
+        )
+        self.assertEqual(patched.status_code, 200)
+        data = self._fetch_data(agent_id)
+        # Only ``tools`` moved; the omitted fields keep their values.
+        self.assertEqual(data["tools"], ["web"])
+        self.assertEqual(data["chat_model_config"]["model"], "gpt-4o")
+        self.assertTrue(data["memory"])
+
+    def test_legacy_record_without_new_fields_still_validates(self) -> None:
+        # A record persisted before these fields existed carries no
+        # ``chat_model_config`` / ``tools`` / ``memory`` keys at all.
+        # ``context_config`` and ``react_config`` have been required
+        # since long before, so a genuine legacy payload still has them.
+        data = AgentData.model_validate(
+            {
+                "id": "x",
+                "name": "old",
+                "system_prompt": "hi",
+                "context_config": {},
+                "react_config": {},
+            },
+        )
+        self.assertIsNone(data.chat_model_config)
+        self.assertEqual(data.tools, [])
+        self.assertFalse(data.memory)

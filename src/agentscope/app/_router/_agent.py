@@ -254,6 +254,19 @@ async def update_agent(
     )
 
     updates = body.model_dump(exclude_none=True)
+    # ``exclude_none`` above also drops an *explicitly sent* ``null``.
+    # For ``chat_model_config`` null is itself a meaningful persisted
+    # state — "the session-level config is in charge" — so restore the
+    # key when the caller deliberately cleared it. The value check
+    # matters: a non-null config is also "explicitly set", and must
+    # keep the value ``model_dump`` already produced. The other
+    # optional fields have non-null empty values (``[]`` / ``False``)
+    # and need no such escape hatch.
+    if (
+        body.chat_model_config is None
+        and "chat_model_config" in body.model_fields_set
+    ):
+        updates["chat_model_config"] = None
     # ``model_copy(update=...)`` skips validators; re-run
     # ``AgentData.model_validate`` on the merged shape so the
     # ``invite_config`` sub-model's ``invitable ⇒ non-empty description``
