@@ -6,6 +6,7 @@ exactly one attempt and either returns its blackboard output or
 raises.
 """
 import json
+import re
 from typing import Any, Awaitable, Callable
 
 from ..._utils._common import _generate_id
@@ -151,7 +152,10 @@ class NodeHandlers:
         if agent is None:
             # Recorded debt: a deleted template fails the node like
             # any other attempt, under the engine's retry budget.
-            raise NodeFailure(f"Agent {cfg.agent_id!r} no longer exists.")
+            raise NodeFailure(
+                f"Node {node.id!r}: agent {cfg.agent_id!r} no longer "
+                "exists.",
+            )
 
         model = agent.data.chat_config.chat_model_config
         if model is None:
@@ -395,14 +399,19 @@ class NodeHandlers:
         """
         agent = await self._storage.get_agent(user_id, agent_id)
         if agent is None:
-            raise NodeFailure(f"Agent {agent_id!r} no longer exists.")
+            # The key is node-scoped (``<node>:body[:<index>]``), so it
+            # names the node without threading another parameter.
+            raise NodeFailure(
+                f"Node {key!r}: agent {agent_id!r} no longer exists.",
+            )
         model = agent.data.chat_config.chat_model_config
         if model is None:
             model = run.data.chat_model_config
         if model is None:
             raise NodeFailure(
-                f"Loop body agent {agent_id!r} has no model: set one on "
-                "the agent or pass a run-level default model.",
+                f"Node {key!r}: loop body agent {agent_id!r} has no "
+                "model: set one on the agent or pass a run-level "
+                "default model.",
             )
         session_id = await self._ensure_session(
             user_id,
@@ -669,9 +678,18 @@ def _as_text(value: Any) -> str:
 
 
 def _match_label(text: str, labels: list[str]) -> str | None:
-    """The first label contained in *text*, case-insensitively."""
+    """The first label appearing in *text* as a whole word.
+
+    Matching is case-insensitive and honours word boundaries, so
+    ``unpassable`` does not count as ``PASS`` while formatting such
+    as ``**PASS**.`` still matches. Labels keep their declaration
+    order — a reply holding two of them picks the first listed.
+    """
     lowered = text.lower()
     for label in labels:
-        if label.lower() in lowered:
+        if re.search(
+            rf"(?<![0-9a-z_]){re.escape(label.lower())}(?![0-9a-z_])",
+            lowered,
+        ):
             return label
     return None

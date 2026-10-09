@@ -560,6 +560,51 @@ class NodeHandlersTest(IsolatedAsyncioTestCase):
         self.assertIn("verifier rejected", str(ctx.exception))
         self.assertIn("draft body", str(ctx.exception))
 
+    async def test_verifier_rejects_substring_hits(self) -> None:
+        """``unpassable`` must not read as PASS: word boundaries rule."""
+        body_id = await _seed_agent(self.storage, "body", _model())
+        node = WorkflowNode(
+            id="polish",
+            config=LoopNodeConfig(
+                mode="retry_until",
+                body_agent_id=body_id,
+                item_template="Draft {{input.topic}}",
+                verifier_prompt="must mention revenue",
+            ),
+        )
+
+        with self.assertRaises(NodeFailure) as ctx:
+            await self._handlers(
+                _FakeRunner(self.storage, "draft body", "unpassable"),
+            ).handle(USER, _run([node], model=_model()), node)
+
+        self.assertIn("neither PASS nor FAIL", str(ctx.exception))
+
+    async def test_judge_tolerates_formatted_labels(self) -> None:
+        """Formatting around a verdict word must not break matching."""
+        body_id = await _seed_agent(self.storage, "body", _model())
+        node = WorkflowNode(
+            id="polish",
+            config=LoopNodeConfig(
+                mode="retry_until",
+                body_agent_id=body_id,
+                item_template="Draft {{input.topic}}",
+                verifier_prompt="must mention revenue",
+            ),
+        )
+
+        output = await self._handlers(
+            _FakeRunner(self.storage, "draft body", "**PASS**."),
+        ).handle(USER, _run([node], model=_model()), node)
+
+        self.assertEqual(
+            output,
+            {
+                "items": [{"text": "draft body", "structured": None}],
+                "attempts": 1,
+            },
+        )
+
     async def test_approval_parks_the_run(self) -> None:
         node = WorkflowNode(
             id="signoff",
