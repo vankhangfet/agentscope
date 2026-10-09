@@ -48,7 +48,7 @@ class WorkflowService:
         problems = await self._validate(user_id, data.graph)
         if problems:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail={"problems": problems},
             )
         record = WorkflowRecord(user_id=user_id, data=data)
@@ -113,11 +113,12 @@ class WorkflowService:
         problems = await self._validate(user_id, data.graph)
         if problems:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail={"problems": problems},
             )
-        data.version = record.data.version + 1
-        record.data = data
+        record.data = data.model_copy(
+            update={"version": record.data.version + 1},
+        )
         return await self._storage.upsert_workflow(user_id, record)
 
     async def delete_workflow(self, user_id: str, workflow_id: str) -> None:
