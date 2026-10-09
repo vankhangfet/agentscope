@@ -288,7 +288,9 @@ class WorkflowService:
         and loop bodies take the agent template's model, else the
         run-level default; a condition node with an ``llm_judge``
         branch takes the node's model, else the run-level default; a
-        rule-only condition or an approval node needs none.
+        rule-only condition or an approval node needs none; and a
+        ``retry_until`` loop's verifier takes only the run-level
+        default, so one must be present.
 
         Args:
             user_id (`str`): The owner whose agents are referenced.
@@ -321,11 +323,21 @@ class WorkflowService:
         agent_ids: list[str] = []
         if isinstance(cfg, AgentNodeConfig):
             agent_ids.append(cfg.agent_id)
-        elif isinstance(cfg, LoopNodeConfig) and cfg.body_agent_id:
+        elif isinstance(cfg, LoopNodeConfig):
+            if cfg.mode == "retry_until" and run_default is None:
+                # The verifier can only run on the run-level model —
+                # loops carry no model field — so a missing default is
+                # statically a dead run; catch it before the engine
+                # burns its attempts on a config error.
+                problems.append(
+                    f"Node {node.id!r} needs a run-level model for "
+                    "its verifier: pass a run-level default.",
+                )
             # Same collection rule as ``_validate``: an iterate loop
             # with no body agent contributes nothing here and fails
             # at dispatch instead.
-            agent_ids.append(cfg.body_agent_id)
+            if cfg.body_agent_id:
+                agent_ids.append(cfg.body_agent_id)
         models: list[ChatModelConfig] = []
         for agent_id in agent_ids:
             agent = await self._storage.get_agent(user_id, agent_id)

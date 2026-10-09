@@ -388,3 +388,67 @@ class StartRunTest(IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(run.data.status, RunStatus.PENDING)
+
+    async def test_retry_loop_without_run_default_is_422(self) -> None:
+        """A retry_until loop's verifier can only run on the run-level
+        model, so a body agent with a model of its own is not enough —
+        no default is a statically dead run."""
+        body_id = await self._seed_agent(_model(self.credential_id))
+        graph = _graph(
+            WorkflowNode(
+                id="fix",
+                config=LoopNodeConfig(
+                    mode="retry_until",
+                    body_agent_id=body_id,
+                    verifier_prompt="Is it fixed?",
+                ),
+            ),
+        )
+        workflow_id = await self._seed_workflow(graph)
+
+        problems = await self._problems(
+            workflow_id=workflow_id,
+            input={},
+        )
+
+        self.assertEqual(
+            problems,
+            [
+                "Node 'fix' needs a run-level model for its verifier: "
+                "pass a run-level default.",
+            ],
+        )
+
+    async def test_judge_node_model_wins_over_the_run_default(self) -> None:
+        """The node's own model is the one checked, not the default:
+        the node model's bad credential is reported while the present
+        default's valid one passes."""
+        graph = _graph(
+            WorkflowNode(
+                id="route",
+                config=ConditionNodeConfig(
+                    branches=[
+                        ConditionBranch(
+                            label="yes",
+                            rule="llm_judge: is the draft good?",
+                        ),
+                    ],
+                    chat_model_config=_model("cred-missing"),
+                ),
+            ),
+        )
+        workflow_id = await self._seed_workflow(graph)
+
+        problems = await self._problems(
+            workflow_id=workflow_id,
+            input={},
+            chat_model_config=_model(self.credential_id),
+        )
+
+        self.assertEqual(
+            problems,
+            [
+                "Model for node 'route' references unknown credential "
+                "'cred-missing'.",
+            ],
+        )
