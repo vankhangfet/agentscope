@@ -176,3 +176,72 @@ class WorkflowRouterTest(IsolatedAsyncioTestCase):
         )
         listed = self._client.get("/workflow/", headers=other).json()
         self.assertEqual(listed["total"], 0)
+
+    def test_patch_unknown_workflow_is_404(self) -> None:
+        """PATCH on a missing id answers 404, before validation."""
+        patched = self._client.patch(
+            "/workflow/wf-missing",
+            json={"data": self._data()},
+            headers=HEADERS,
+        )
+        self.assertEqual(patched.status_code, 404)
+
+    def test_patch_invalid_graph_is_422(self) -> None:
+        """PATCH validates the new graph before persisting."""
+        created = self._client.post(
+            "/workflow/",
+            json={"data": self._data()},
+            headers=HEADERS,
+        ).json()
+        cyclic = dict(
+            self._data(),
+            graph={
+                "nodes": _graph(self._agent_id)["nodes"],
+                "edges": [
+                    {"id": "e1", "source": "a", "target": "b"},
+                    {"id": "e2", "source": "b", "target": "a"},
+                ],
+            },
+        )
+        patched = self._client.patch(
+            f"/workflow/{created['workflow_id']}",
+            json={"data": cyclic},
+            headers=HEADERS,
+        )
+        self.assertEqual(patched.status_code, 422)
+        # The stored record is untouched: still version 1, old name.
+        fetched = self._client.get(
+            f"/workflow/{created['workflow_id']}",
+            headers=HEADERS,
+        ).json()
+        self.assertEqual(fetched["data"]["version"], 1)
+        self.assertEqual(fetched["data"]["name"], "pipeline")
+
+    def test_delete_unknown_workflow_is_404(self) -> None:
+        """DELETE on a missing id answers 404; double delete too."""
+        self.assertEqual(
+            self._client.delete(
+                "/workflow/wf-missing",
+                headers=HEADERS,
+            ).status_code,
+            404,
+        )
+        created = self._client.post(
+            "/workflow/",
+            json={"data": self._data()},
+            headers=HEADERS,
+        ).json()
+        self.assertEqual(
+            self._client.delete(
+                f"/workflow/{created['workflow_id']}",
+                headers=HEADERS,
+            ).status_code,
+            204,
+        )
+        self.assertEqual(
+            self._client.delete(
+                f"/workflow/{created['workflow_id']}",
+                headers=HEADERS,
+            ).status_code,
+            404,
+        )
