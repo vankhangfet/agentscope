@@ -973,7 +973,7 @@ Add to `WorkflowService`:
 
 ### Task 8: WorkflowEngine orchestrator
 
-**Carry-ins from Task 6's review:** (a) `_ensure_session` creates sessions with bare `AgentState()` (PermissionMode.DEFAULT) — a DEFAULT-mode tool confirmation parks the turn; `_read_reply` now fails error-bearing turns so this surfaces as NodeFailure under the retry budget, but Task 8 should decide (and document) whether workflow agent sessions want a specific permission mode; (b) iterate-loop retries re-run all items — a per-item progress stash (`context[f"_loop:{node_id}"]`) would resume at the failed item; deferred, v1 accepts the cost; (c) reuse `NodeHandlers._blackboard` rather than re-deriving.
+**Carry-ins from Task 6's review:** (a) `_ensure_session` creates sessions with bare `AgentState()` (PermissionMode.DEFAULT) — a DEFAULT-mode tool confirmation parks the turn; `_read_reply` now fails error-bearing turns so this surfaces as NodeFailure under the retry budget, but Task 8 should decide (and document) whether workflow agent sessions want a specific permission mode; (b) iterate-loop retries re-run all items — a per-item progress stash (`context[f"_loop:{node_id}"]`) would resume at the failed item; deferred, v1 accepts the cost; (c) reuse `NodeHandlers._blackboard` rather than re-deriving; (d) **dispatch nodes through `NodeHandlers.handle()`** — the unexpected-exception→NodeFailure wrap lives at that single choke point; a per-method table would silently bypass it.
 
 **Files:**
 - Create: `src/agentscope/app/_service/_workflow_engine.py`
