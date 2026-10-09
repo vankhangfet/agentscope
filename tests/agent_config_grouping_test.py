@@ -281,9 +281,19 @@ class AgentConfigGroupingTest(IsolatedAsyncioTestCase):
             ["chat_config", "name", "system_prompt"],
         )
         chat_config = schema["properties"]["chat_config"]
+        # The workflow template fields (model config, tools, memory)
+        # live in this section too — they are text-conversation
+        # settings like the rest.
         self.assertListEqual(
             sorted(chat_config["properties"]),
-            ["context_config", "invite_config", "react_config"],
+            [
+                "chat_model_config",
+                "context_config",
+                "invite_config",
+                "memory",
+                "react_config",
+                "tools",
+            ],
         )
         self.assertNotIn(
             "summary_schema",

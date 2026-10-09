@@ -105,6 +105,13 @@ from ._session import (
     TeamDetailResponse,
     TeamMemberView,
 )
+from ._workflow import (
+    CreateWorkflowRequest,
+    CreateWorkflowResponse,
+    ListWorkflowsResponse,
+    UpdateWorkflowRequest,
+    WorkflowDetailResponse,
+)
 
 __all__ = [
     # Health
@@ -210,4 +217,10 @@ __all__ = [
     "SessionView",
     "TeamDetailResponse",
     "TeamMemberView",
+    # Workflow
+    "CreateWorkflowRequest",
+    "CreateWorkflowResponse",
+    "ListWorkflowsResponse",
+    "UpdateWorkflowRequest",
+    "WorkflowDetailResponse",
 ]

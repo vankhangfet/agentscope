@@ -26,6 +26,7 @@ from ._service import (
     SessionService,
     SOPService,
     WorkspaceService,
+    WorkflowService,
 )
 
 if TYPE_CHECKING:
@@ -217,6 +218,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             workspace_manager=workspace_manager,
             download_secret=app.state.download_secret,
         )
+
+        app.state.workflow_service = WorkflowService(storage=storage)
 
         # ---------------- Knowledge-base wiring ----------------
         knowledge_base_service = None

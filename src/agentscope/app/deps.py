@@ -22,6 +22,7 @@ from ._service import (
     ResourceAccessService,
     SessionService,
     WorkspaceService,
+    WorkflowService,
 )
 from ._types import AgentMiddlewareFactory, AgentToolFactory
 from .hub import MCPHubBase, SkillHubBase
@@ -189,6 +190,18 @@ async def get_sop_service(request: Request) -> SOPService:
         `SOPService`: The SOP service instance stored in ``app.state``.
     """
     return request.app.state.sop_service
+
+
+async def get_workflow_service(request: Request) -> WorkflowService:
+    """Return the application-wide workflow service.
+
+    Args:
+        request (`Request`): The incoming FastAPI request.
+
+    Returns:
+        `WorkflowService`: The workflow service stored in ``app.state``.
+    """
+    return request.app.state.workflow_service
 
 
 async def get_workspace_manager(request: Request) -> WorkspaceManagerBase:

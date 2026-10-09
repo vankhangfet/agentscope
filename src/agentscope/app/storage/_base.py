@@ -22,6 +22,7 @@ from ._model import (
     SOPRecord,
     SOPRunRecord,
     TeamRecord,
+    WorkflowRecord,
 )
 from ...credential import CredentialBase
 from ...message import Msg
@@ -979,6 +980,41 @@ class StorageBase(ABC):
                 Whether there was one to delete.
         """
         raise NotImplementedError
+
+    # ------------------------------------------------------------------
+    # Workflows
+    # ------------------------------------------------------------------
+
+    @abstractmethod
+    async def upsert_workflow(
+        self,
+        user_id: str,
+        record: WorkflowRecord,
+    ) -> WorkflowRecord:
+        """Persist a workflow (create or overwrite)."""
+
+    @abstractmethod
+    async def get_workflow(
+        self,
+        user_id: str,
+        workflow_id: str,
+    ) -> WorkflowRecord | None:
+        """Fetch one workflow by id, or None when absent."""
+
+    @abstractmethod
+    async def list_workflows(
+        self,
+        user_id: str,
+    ) -> list[WorkflowRecord]:
+        """Every workflow the user owns."""
+
+    @abstractmethod
+    async def delete_workflow(
+        self,
+        user_id: str,
+        workflow_id: str,
+    ) -> bool:
+        """Delete a workflow; True when it existed."""
 
     # ------------------------------------------------------------------
     # Team persistence

@@ -7,8 +7,9 @@ from pydantic import Field, BaseModel, model_validator
 from pydantic.json_schema import SkipJsonSchema
 
 from ...._utils._common import _generate_id
-from ._base import _RecordBase
 from ....agent import ContextConfig, ReActConfig
+from ._base import _RecordBase
+from ._session import ChatModelConfig
 
 
 class InviteConfig(BaseModel):
@@ -90,6 +91,27 @@ class AgentChatConfig(BaseModel):
         title="Invite Config",
     )
 
+    chat_model_config: ChatModelConfig | None = Field(
+        default=None,
+        description=(
+            "Default model for the agent's text sessions; None keeps "
+            "the session-level config in charge."
+        ),
+        title="Chat Model Config",
+    )
+
+    tools: list[str] = Field(
+        default_factory=list,
+        description="Names of workspace MCP tools the agent may use.",
+        title="Tools",
+    )
+
+    memory: bool = Field(
+        default=False,
+        description="Enable long-term memory for the agent.",
+        title="Memory",
+    )
+
 
 class AgentData(BaseModel):
     """The agent data model."""
@@ -168,7 +190,14 @@ class AgentData(BaseModel):
             return data
         legacy = {
             key: data[key]
-            for key in ("context_config", "react_config", "invite_config")
+            for key in (
+                "context_config",
+                "react_config",
+                "invite_config",
+                "chat_model_config",
+                "tools",
+                "memory",
+            )
             if key in data
         }
         if not legacy:

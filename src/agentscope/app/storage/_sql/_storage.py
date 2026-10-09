@@ -37,6 +37,7 @@ from .._model import (
     SOPRecord,
     SOPRunRecord,
     TeamRecord,
+    WorkflowRecord,
 )
 from .._utils import _dump_with_secrets
 from ._mappers import _from_record, _to_record
@@ -55,6 +56,7 @@ from ._tables import (
     SOPRow,
     SOPRunRow,
     TeamRow,
+    WorkflowRow,
 )
 from ....credential import CredentialBase
 from ....message import Msg
@@ -2221,3 +2223,55 @@ class AsyncSQLAlchemyStorage(StorageBase):
                 .all()
             )
         return [_to_record(r, KnowledgeDocumentRecord) for r in rows]
+
+    # ------------------------------------------------------------------
+    # Workflow persistence
+    # ------------------------------------------------------------------
+
+    async def upsert_workflow(
+        self,
+        user_id: str,
+        record: WorkflowRecord,
+    ) -> WorkflowRecord:
+        """Persist a workflow (create or overwrite)."""
+        _ = user_id  # scoping is enforced by the caller
+        return await self._write_row(WorkflowRow, record)
+
+    async def get_workflow(
+        self,
+        user_id: str,
+        workflow_id: str,
+    ) -> WorkflowRecord | None:
+        """Fetch one workflow; owner-scoped."""
+        async with self._session() as sess:
+            row = await sess.get(WorkflowRow, workflow_id)
+        if row is None or row.user_id != user_id:
+            return None
+        return _to_record(row, WorkflowRecord)
+
+    async def list_workflows(self, user_id: str) -> list[WorkflowRecord]:
+        """Return the user's workflows, oldest first."""
+        from sqlalchemy import select
+
+        stmt = (
+            select(WorkflowRow)
+            .where(WorkflowRow.user_id == user_id)
+            .order_by(WorkflowRow.created_at)
+        )
+        async with self._session() as sess:
+            rows = (await sess.execute(stmt)).scalars().all()
+        return [_to_record(r, WorkflowRecord) for r in rows]
+
+    async def delete_workflow(
+        self,
+        user_id: str,
+        workflow_id: str,
+    ) -> bool:
+        """Delete a workflow."""
+        async with self._session() as sess:
+            row = await sess.get(WorkflowRow, workflow_id)
+            if row is None or row.user_id != user_id:
+                return False
+            await sess.delete(row)
+            await sess.commit()
+        return True

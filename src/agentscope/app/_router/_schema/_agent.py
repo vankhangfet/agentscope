@@ -5,7 +5,7 @@ import warnings
 from pydantic import BaseModel, Field
 
 from ....agent import ContextConfig, ReActConfig
-from ...storage import AgentChatConfig, InviteConfig
+from ...storage import AgentChatConfig, ChatModelConfig, InviteConfig
 from ..._service import AgentView
 
 
@@ -41,6 +41,20 @@ class CreateAgentRequest(BaseModel):
         default=None,
         description="**Deprecated.** Use ``chat_config.invite_config``.",
         deprecated=True,
+    )
+    chat_model_config: ChatModelConfig | None = Field(
+        default=None,
+        description="Default model configuration for this agent.",
+    )
+
+    tools: list[str] = Field(
+        default_factory=list,
+        description="Workspace MCP tool names the agent may use.",
+    )
+
+    memory: bool = Field(
+        default=False,
+        description="Enable long-term memory.",
     )
 
 
@@ -85,6 +99,23 @@ class UpdateAgentRequest(BaseModel):
         default=None,
         description="**Deprecated.** Use ``chat_config``.",
         deprecated=True,
+    )
+    chat_model_config: ChatModelConfig | None = Field(
+        default=None,
+        description=(
+            "New default model configuration; an explicit ``null`` "
+            "clears it back to session-level inheritance."
+        ),
+    )
+
+    tools: list[str] | None = Field(
+        default=None,
+        description="New tool list.",
+    )
+
+    memory: bool | None = Field(
+        default=None,
+        description="Enable or disable long-term memory.",
     )
 
 

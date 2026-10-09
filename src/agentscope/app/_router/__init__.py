@@ -16,6 +16,7 @@ from ._sop import sop_router
 from ._model import model_router
 from ._realtime import realtime_router
 from ._tts_model import tts_model_router
+from ._workflow import workflow_router
 from ._workspace import workspace_router
 
 __all__ = [
@@ -36,4 +37,5 @@ __all__ = [
     "skill_router",
     "sop_router",
     "workspace_router",
+    "workflow_router",
 ]
