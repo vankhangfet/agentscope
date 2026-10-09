@@ -965,3 +965,193 @@ class WorkflowEngineTest(IsolatedAsyncioTestCase):
             any("finalized" in line for line in logs.output),
             logs.output,
         )
+
+    # -- 17.-20. terminal absorption, locked park, sweep isolation ---
+
+    async def test_approve_on_terminal_run_is_409(self) -> None:
+        """Approving a leftover parked node on a terminal run answers
+        409 and never resurrects the run.
+
+        The shape is real: a parallel branch exhausted its budget
+        while this branch sat parked, so the run FAILED with the
+        approval node still WAITING_HUMAN.
+        """
+        worker_id = await _seed_agent(self.storage, "worker", _model())
+        graph = WorkflowGraph(
+            nodes=[
+                _agent_node("a", worker_id),
+                WorkflowNode(id="signoff", config=HumanApprovalNodeConfig()),
+                _agent_node("done", worker_id),
+            ],
+            edges=[_edge("a", "signoff"), _edge("signoff", "done", "approve")],
+        )
+        record = _run(
+            graph,
+            run_status=RunStatus.FAILED,
+            node_states={
+                "a": NodeRunState(
+                    status=RunStatus.SUCCEEDED,
+                    attempts=1,
+                    output={"text": "canned", "structured": None},
+                ),
+                "signoff": NodeRunState(
+                    status=RunStatus.WAITING_HUMAN,
+                    attempts=1,
+                ),
+            },
+            context={"a": {"text": "canned", "structured": None}},
+        )
+        record.data.error = "Node 'other' failed: budget exhausted."
+        run = await self._seed_run(record)
+
+        with self.assertRaises(HTTPException) as caught:
+            await self.engine.approve(USER, run.id, "signoff", "approve", None)
+
+        self.assertEqual(caught.exception.status_code, 409)
+        self.assertEqual(caught.exception.detail, "Run is no longer active.")
+        final = await self.storage.get_workflow_run(USER, run.id)
+        assert final is not None  # for the type checker
+        self.assertEqual(final.data.status, RunStatus.FAILED)
+        self.assertEqual(
+            self._state(final, "signoff").status,
+            RunStatus.WAITING_HUMAN,
+        )
+        self.assertEqual(self._status(final, "done"), RunStatus.PENDING)
+        # Nothing dispatched: no successor turn, no live loop.
+        self.assertEqual(self.runner.calls, [])
+        self.assertNotIn(run.id, self.engine._tasks)
+
+    async def test_verdict_racing_the_park_still_dispatches(self) -> None:
+        """A verdict landing between the loop's read and its park
+        decision must not strand the run parked.
+
+        The park decision is re-evaluated on the fresh record under
+        the write lock; the pre-fix park stamped WAITING_HUMAN over a
+        run whose successor had just become ready, and with the loop
+        still alive nobody re-dispatched it until the next boot.
+        """
+        worker_id = await _seed_agent(self.storage, "worker", _model())
+        graph = WorkflowGraph(
+            nodes=[
+                _agent_node("a", worker_id),
+                WorkflowNode(id="signoff", config=HumanApprovalNodeConfig()),
+                _agent_node("done", worker_id),
+            ],
+            edges=[_edge("a", "signoff"), _edge("signoff", "done", "approve")],
+        )
+        run = await self._seed_run(_run(graph))
+
+        real_get = self.storage.get_workflow_run
+        fired = False
+
+        async def racing_get(user_id: str, run_id: str):
+            nonlocal fired
+            current = await real_get(user_id, run_id)
+            signoff = (
+                current.data.node_states.get("signoff")
+                if current is not None
+                else None
+            )
+            if (
+                not fired
+                and current is not None
+                and current.data.status is RunStatus.RUNNING
+                and signoff is not None
+                and signoff.status is RunStatus.WAITING_HUMAN
+            ):
+                # The verdict lands right after the loop's read: apply
+                # it to storage, then hand the loop the stale
+                # pre-verdict snapshot it actually observed.
+                fired = True
+                stale = current.model_copy(deep=True)
+                output = {
+                    "branch": "approve",
+                    "verdict": "approve",
+                    "note": "raced",
+                }
+                signoff.status = RunStatus.SUCCEEDED
+                signoff.output = output
+                current.data.context["signoff"] = output
+                await self.storage.upsert_workflow_run(user_id, current)
+                return stale
+            return current
+
+        self.storage.get_workflow_run = racing_get  # pylint: disable=attribute-defined-outside-init
+        try:
+            await self.engine.dispatch(USER, run.id)
+            final = await self._poll(run.id, {RunStatus.SUCCEEDED})
+        finally:
+            self.storage.get_workflow_run = real_get  # pylint: disable=attribute-defined-outside-init
+
+        self.assertEqual(
+            self._state(final, "signoff").output,
+            {"branch": "approve", "verdict": "approve", "note": "raced"},
+        )
+        self.assertEqual(self._state(final, "done").status, RunStatus.SUCCEEDED)
+
+    async def test_recovery_skips_poisoned_rows(self) -> None:
+        """One corrupt stored run must not abort the recovery sweep."""
+        worker_id = await _seed_agent(self.storage, "worker", _model())
+        graph = WorkflowGraph(
+            nodes=[_agent_node("work", worker_id)],
+            edges=[],
+        )
+        healthy = await self._seed_run(
+            _run(
+                graph,
+                run_status=RunStatus.RUNNING,
+                node_states={
+                    "work": NodeRunState(status=RunStatus.RUNNING, attempts=1),
+                },
+            ),
+        )
+        poison = await self._seed_run(
+            _run(
+                graph,
+                run_status=RunStatus.RUNNING,
+                node_states={
+                    "work": NodeRunState(status=RunStatus.RUNNING, attempts=1),
+                },
+            ),
+        )
+        key = self.storage._key(
+            self.storage.key_config.workflow_run,
+            user_id=USER,
+            run_id=poison.id,
+        )
+        await self.storage._client.set(key, "{not valid json")
+
+        with self.assertLogs(level="WARNING") as logs:
+            touched = await self.engine.recover_stale_runs()
+
+        self.assertGreaterEqual(touched, 1)
+        self.assertTrue(
+            any(poison.id in line for line in logs.output),
+            logs.output,
+        )
+        final = await self._poll(healthy.id, {RunStatus.SUCCEEDED})
+        self.assertEqual(self._state(final, "work").status, RunStatus.SUCCEEDED)
+
+    async def test_cancel_survives_a_loop_that_raises(self) -> None:
+        """Cancelling a loop that dies of a non-cancel error still
+        returns the cancelled record instead of propagating to the
+        API caller."""
+        worker_id = await _seed_agent(self.storage, "worker", _model())
+        run = await self._seed_run(
+            _run(WorkflowGraph(nodes=[_agent_node("a", worker_id)], edges=[])),
+        )
+
+        async def stubborn_loop(user_id: str, run_id: str) -> None:
+            try:
+                await asyncio.sleep(10)
+            except asyncio.CancelledError:
+                raise RuntimeError("cleanup exploded") from None
+
+        self.engine._loop = stubborn_loop  # pylint: disable=attribute-defined-outside-init
+        await self.engine.dispatch(USER, run.id)
+        await asyncio.sleep(0.01)
+
+        cancelled = await self.engine.cancel(USER, run.id)
+
+        self.assertEqual(cancelled.data.status, RunStatus.CANCELLED)
+        self.assertEqual(self._status(cancelled, "a"), RunStatus.CANCELLED)

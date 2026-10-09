@@ -2,6 +2,7 @@
 # pylint: disable=too-many-public-methods
 """The Redis storage implementation."""
 
+import logging
 import warnings
 from datetime import datetime, timedelta
 from typing import Any, TYPE_CHECKING, Self
@@ -62,6 +63,8 @@ def _watch_error() -> type[BaseException]:
 # ``upsert_workflow_run`` (index maintenance) and
 # ``list_active_workflow_runs`` (self-healing) so the two cannot drift.
 _ACTIVE_RUN_STATUSES = (RunStatus.RUNNING, RunStatus.WAITING_HUMAN)
+
+_logger = logging.getLogger(__name__)
 
 
 class RedisStorage(StorageBase):
@@ -2034,9 +2037,11 @@ class RedisStorage(StorageBase):
         """Every non-terminal run across all users, per the active index.
 
         Self-healing: entries whose record key has expired, been
-        deleted externally, or whose run has since reached a
-        non-active state (the terminal upsert's ``srem`` was lost) are
-        pruned from the index rather than returned.
+        deleted externally, whose stored JSON no longer parses (the
+        recovery sweep must survive a corrupt row), or whose run has
+        since reached a non-active state (the terminal upsert's
+        ``srem`` was lost) are pruned from the index rather than
+        returned.
         """
         active_key = self.key_config.workflow_run_active_index
         records = []
@@ -2050,7 +2055,19 @@ class RedisStorage(StorageBase):
             except ValueError:
                 stale.append(entry)
                 continue
-            record = await self.get_workflow_run(user_id, run_id)
+            try:
+                record = await self.get_workflow_run(user_id, run_id)
+            except ValueError as exc:
+                # pydantic's ValidationError (a ValueError) on a row
+                # corrupted in place: prune it so the sweep keeps
+                # running for every healthy run.
+                _logger.warning(
+                    "Pruning unreadable workflow run entry %r: %s",
+                    entry,
+                    exc,
+                )
+                stale.append(entry)
+                continue
             if (
                 record is not None
                 and record.data.status in _ACTIVE_RUN_STATUSES

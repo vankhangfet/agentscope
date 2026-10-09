@@ -96,7 +96,11 @@ class WorkflowEngine:
         """
         self._storage = storage
         self._bus = message_bus
-        self._handlers = NodeHandlers(storage, chat_runner, judge_agent_factory)
+        self._handlers = NodeHandlers(
+            storage,
+            chat_runner,
+            judge_agent_factory,
+        )
         self._tasks: dict[str, asyncio.Task] = {}
         self._semaphore = asyncio.Semaphore(max_parallel)
         self._write_lock = asyncio.Lock()
@@ -184,8 +188,14 @@ class WorkflowEngine:
                     state.status is RunStatus.WAITING_HUMAN
                     for state in states.values()
                 ):
-                    await self._mutate(user_id, run_id, _park_run)
-                    return
+                    if await self._park(user_id, run_id):
+                        return
+                    # The park decision re-evaluated under the lock
+                    # found the world moved — a verdict made a
+                    # successor ready or resolved the parked node.
+                    # Re-plan on the next pass instead of stranding
+                    # the run parked.
+                    continue
                 # Nothing can dispatch and nobody is parked, so every
                 # PENDING node is unreachable (an un-taken branch).
                 # Finalizing cancels them and completes the run along
@@ -331,6 +341,41 @@ class WorkflowEngine:
 
             await self._mutate(user_id, run_id, succeed)
 
+    async def _park(self, user_id: str, run_id: str) -> bool:
+        """Park the run as WAITING_HUMAN — unless the world moved.
+
+        The decision is re-evaluated on the freshly reloaded record
+        under the write lock: a verdict that landed after the loop's
+        pass read (making a successor ready, or resolving the parked
+        node) skips the persist entirely, and the caller re-plans
+        instead of stranding the run parked.
+
+        Args:
+            user_id (`str`): The run's owner.
+            run_id (`str`): The run to park.
+
+        Returns:
+            `bool`: True when the run was parked; False when a fresh
+            look found it should not be.
+        """
+        parked = False
+
+        def park_if_still_stalled(record: WorkflowRunRecord):
+            nonlocal parked
+            if ready_nodes(record.data.graph, record.data.node_states):
+                return []
+            if not any(
+                state.status is RunStatus.WAITING_HUMAN
+                for state in record.data.node_states.values()
+            ):
+                return []
+            record.data.status = RunStatus.WAITING_HUMAN
+            parked = True
+            return [(None, RunStatus.WAITING_HUMAN, None)]
+
+        await self._mutate(user_id, run_id, park_if_still_stalled)
+        return parked
+
     @staticmethod
     def _retry_left(node: WorkflowNode, attempts: int) -> bool:
         """Whether one more attempt of *node* fits its retry budget.
@@ -378,14 +423,18 @@ class WorkflowEngine:
                     state.status = RunStatus.CANCELLED
                     events.append((node.id, RunStatus.CANCELLED, None))
             if record.data.status not in _RUN_TERMINAL:
-                statuses = [
-                    record.data.node_states[node.id].status
+                failed = [
+                    node.id
                     for node in record.data.graph.nodes
+                    if record.data.node_states[node.id].status
+                    is RunStatus.FAILED
                 ]
-                if any(item is RunStatus.FAILED for item in statuses):
+                if failed:
                     record.data.status = RunStatus.FAILED
                     if not record.data.error:
-                        record.data.error = "workflow stalled: no runnable nodes."
+                        # Defensive: the failure path always records
+                        # one; a hand-crafted state may not.
+                        record.data.error = f"Node {failed[0]!r} failed."
                 else:
                     record.data.status = RunStatus.SUCCEEDED
             record.data.finished_at = datetime.now()
@@ -426,7 +475,9 @@ class WorkflowEngine:
 
         Raises:
             `HTTPException`: 404 when the run is missing; 409 when the
-                node is not awaiting approval; 422 on an unknown
+                node is not awaiting approval or the run already
+                reached a terminal state (a parallel branch can fail
+                the run while this one sits parked); 422 on an unknown
                 verdict (defensive — routers constrain it too).
         """
         run = await self._storage.get_workflow_run(user_id, run_id)
@@ -434,6 +485,11 @@ class WorkflowEngine:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Workflow run {run_id!r} not found.",
+            )
+        if run.data.status in _RUN_TERMINAL:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Run is no longer active.",
             )
         state = run.data.node_states.get(node_id)
         if state is None or state.status is not RunStatus.WAITING_HUMAN:
@@ -449,6 +505,13 @@ class WorkflowEngine:
         output = {"branch": verdict, "verdict": verdict, "note": note}
 
         def record_verdict(item: WorkflowRunRecord):
+            if item.data.status in _RUN_TERMINAL:
+                # The run finalized between the pre-check and this
+                # locked write — never resurrect it with a verdict.
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Run is no longer active.",
+                )
             node_state = item.data.node_states.setdefault(
                 node_id,
                 NodeRunState(),
@@ -500,6 +563,14 @@ class WorkflowEngine:
                 await task
             except asyncio.CancelledError:
                 pass
+            except Exception:  # pylint: disable=broad-except
+                # A loop that died of something else mid-cancellation
+                # must not mask the cancel the caller asked for.
+                logger.error(
+                    "Workflow run %r loop raised while being cancelled.",
+                    run_id,
+                    exc_info=True,
+                )
         # Reloaded after the loop settled: its final persists count.
 
         def record_cancel(item: WorkflowRunRecord):
@@ -608,102 +679,119 @@ class WorkflowEngine:
         its ``timeout_hours`` applies its ``timeout_branch`` —
         ``fail`` ends the run as FAILED, any other label behaves as if
         that branch had been chosen. Runs that can continue are
-        dispatched afresh; still-parked ones are left parked.
+        dispatched afresh; still-parked ones are left parked. Each
+        record is reconciled in isolation: one unreadable or failing
+        run is logged and skipped, never aborting the sweep (or the
+        app boot that runs it).
 
         Returns:
             `int`: How many runs recovery rewrote or resumed.
         """
         touched = 0
         for record in await self._storage.list_active_workflow_runs():
-            user_id = record.user_id
-            run_id = record.id
-            now = datetime.now()
-            events: list[tuple[str | None, RunStatus, str | None]] = []
-            for node in record.data.graph.nodes:
-                node_state = record.data.node_states.get(node.id)
-                if node_state is None:
-                    continue
-                if node_state.status is RunStatus.RUNNING:
-                    node_state.error = "interrupted by restart"
-                    if self._retry_left(node, node_state.attempts):
-                        node_state.status = RunStatus.PENDING
-                    else:
-                        node_state.status = RunStatus.FAILED
-                        record.data.status = RunStatus.FAILED
-                        record.data.error = (
-                            f"Node {node.id!r} failed: "
-                            "interrupted by restart"
-                        )
-                        record.data.finished_at = now
-                    events.append(
-                        (node.id, node_state.status, node_state.error),
-                    )
-                    continue
-                cfg = node.config
-                if (
-                    node_state.status is RunStatus.WAITING_HUMAN
-                    and isinstance(cfg, HumanApprovalNodeConfig)
-                    and now - record.updated_at
-                    > timedelta(hours=cfg.timeout_hours)
-                ):
-                    if cfg.timeout_branch == "fail":
-                        node_state.status = RunStatus.FAILED
-                        node_state.error = "approval timed out"
-                        record.data.status = RunStatus.FAILED
-                        record.data.error = (
-                            f"Node {node.id!r} failed: approval timed out."
-                        )
-                        record.data.finished_at = now
-                    else:
-                        node_state.status = RunStatus.SUCCEEDED
-                        node_state.output = {"branch": cfg.timeout_branch}
-                        record.data.context[node.id] = node_state.output
-                    events.append(
-                        (node.id, node_state.status, node_state.error),
-                    )
-            acted = bool(events)
-            if events:
-                await self._storage.upsert_workflow_run(user_id, record)
-                for node_id, run_status, error in events:
-                    await self._publish(
-                        run_id,
-                        node_id=node_id,
-                        status=run_status,
-                        error=error,
-                    )
-            graph = record.data.graph
-            states = record.data.node_states
-            if (
-                record.data.status in _RUN_TERMINAL
-                or run_is_finished(graph, states)
-            ):
-                await self._finalize(user_id, record)
-                acted = True
-                touched += 1
-                continue
-            ready = ready_nodes(graph, states)
-            waiting = any(
-                node_state.status is RunStatus.WAITING_HUMAN
-                for node_state in states.values()
-            )
-            if waiting and not ready:
-                if record.data.status is not RunStatus.WAITING_HUMAN:
-                    # Crash between parking the node and parking the
-                    # run; finish parking it.
-                    record.data.status = RunStatus.WAITING_HUMAN
-                    await self._storage.upsert_workflow_run(user_id, record)
-                    await self._publish(
-                        run_id,
-                        node_id=None,
-                        status=RunStatus.WAITING_HUMAN,
-                    )
-                    acted = True
-                if acted:
-                    touched += 1
-                continue
-            await self.dispatch(user_id, run_id)
-            touched += 1
+            try:
+                touched += await self._recover_one(record)
+            except Exception:  # pylint: disable=broad-except
+                logger.error(
+                    "Recovering workflow run %r failed; skipping it.",
+                    record.id,
+                    exc_info=True,
+                )
         return touched
+
+    async def _recover_one(self, record: WorkflowRunRecord) -> int:
+        """Reconcile one active run; see :meth:`recover_stale_runs`.
+
+        Args:
+            record (`WorkflowRunRecord`): The active run to reconcile.
+
+        Returns:
+            `int`: 1 when recovery rewrote or resumed it, else 0.
+        """
+        user_id = record.user_id
+        run_id = record.id
+        now = datetime.now()
+        events: list[tuple[str | None, RunStatus, str | None]] = []
+        for node in record.data.graph.nodes:
+            node_state = record.data.node_states.get(node.id)
+            if node_state is None:
+                continue
+            if node_state.status is RunStatus.RUNNING:
+                node_state.error = "interrupted by restart"
+                if self._retry_left(node, node_state.attempts):
+                    node_state.status = RunStatus.PENDING
+                else:
+                    node_state.status = RunStatus.FAILED
+                    record.data.status = RunStatus.FAILED
+                    record.data.error = (
+                        f"Node {node.id!r} failed: "
+                        "interrupted by restart"
+                    )
+                    record.data.finished_at = now
+                events.append(
+                    (node.id, node_state.status, node_state.error),
+                )
+                continue
+            cfg = node.config
+            if (
+                node_state.status is RunStatus.WAITING_HUMAN
+                and isinstance(cfg, HumanApprovalNodeConfig)
+                and now - record.updated_at
+                > timedelta(hours=cfg.timeout_hours)
+            ):
+                if cfg.timeout_branch == "fail":
+                    node_state.status = RunStatus.FAILED
+                    node_state.error = "approval timed out"
+                    record.data.status = RunStatus.FAILED
+                    record.data.error = (
+                        f"Node {node.id!r} failed: approval timed out."
+                    )
+                    record.data.finished_at = now
+                else:
+                    node_state.status = RunStatus.SUCCEEDED
+                    node_state.output = {"branch": cfg.timeout_branch}
+                    record.data.context[node.id] = node_state.output
+                events.append(
+                    (node.id, node_state.status, node_state.error),
+                )
+        acted = bool(events)
+        if events:
+            await self._storage.upsert_workflow_run(user_id, record)
+            for node_id, run_status, error in events:
+                await self._publish(
+                    run_id,
+                    node_id=node_id,
+                    status=run_status,
+                    error=error,
+                )
+        graph = record.data.graph
+        states = record.data.node_states
+        if (
+            record.data.status in _RUN_TERMINAL
+            or run_is_finished(graph, states)
+        ):
+            await self._finalize(user_id, record)
+            return 1
+        ready = ready_nodes(graph, states)
+        waiting = any(
+            node_state.status is RunStatus.WAITING_HUMAN
+            for node_state in states.values()
+        )
+        if waiting and not ready:
+            if record.data.status is not RunStatus.WAITING_HUMAN:
+                # Crash between parking the node and parking the run;
+                # finish parking it.
+                record.data.status = RunStatus.WAITING_HUMAN
+                await self._storage.upsert_workflow_run(user_id, record)
+                await self._publish(
+                    run_id,
+                    node_id=None,
+                    status=RunStatus.WAITING_HUMAN,
+                )
+                acted = True
+            return 1 if acted else 0
+        await self.dispatch(user_id, run_id)
+        return 1
 
     # ------------------------------------------------------------------
     # Transition plumbing
@@ -806,12 +894,6 @@ class WorkflowEngine:
                 run_id,
                 exc_info=True,
             )
-
-
-def _park_run(record: WorkflowRunRecord):
-    """Transition helper: park the run itself."""
-    record.data.status = RunStatus.WAITING_HUMAN
-    return [(None, RunStatus.WAITING_HUMAN, None)]
 
 
 def _resume_run(record: WorkflowRunRecord):
