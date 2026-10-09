@@ -1116,4 +1116,4 @@ Plus one engine-through-HTTP smoke with an agent node is NOT possible without a 
 ## Follow-up plans
 
 - **Plan 3 — Triggers:** scheduler → engine.dispatch, `run_workflow` chat tool, `POST /credential/test`. **Performance notes from Task 3's review (apply when wiring the hot loop):** (a) wrap the Redis run-upsert's 4-5 sequential round trips in a `pipeline()`; (b) consider splitting the immutable graph snapshot into its own key/column written once at run creation so per-transition upserts shrink; (c) `list_workflow_runs`/`list_active_workflow_runs` are N+1 GETs — `mget` is a drop-in improvement.
-- **Plan 4 — Frontend:** React Flow builder, run view (SSE from `workflow_run:{run_id}` bus channel), approvals inbox, agent template form fields (incl. the recorded SchemaForm debt).
+- **Plan 4 — Frontend:** React Flow builder, run view (SSE from `workflow_run:{run_id}` bus channel), approvals inbox, agent template form fields (incl. the recorded SchemaForm debt). **Also from Task 4's review:** add `'sop'` and `'workflow'` to the `SessionOrigin` TS type in `examples/web_ui/frontend/src/api/types.ts` (currently lags; generic-icon fallback masks it).
