@@ -1797,7 +1797,7 @@ class RedisStorage(StorageBase):
             record = await self.get_workflow(user_id, workflow_id)
             if record is not None:
                 records.append(record)
-        return sorted(records, key=lambda _: _.created_at)
+        return sorted(records, key=lambda record: record.created_at)
 
     async def delete_workflow(
         self,
