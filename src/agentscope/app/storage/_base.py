@@ -23,6 +23,7 @@ from ._model import (
     SOPRunRecord,
     TeamRecord,
     WorkflowRecord,
+    WorkflowRunRecord,
 )
 from ...credential import CredentialBase
 from ...message import Msg
@@ -1014,7 +1015,52 @@ class StorageBase(ABC):
         user_id: str,
         workflow_id: str,
     ) -> bool:
-        """Delete a workflow; True when it existed."""
+        """Delete a workflow; True when it existed.
+
+        Deleting a workflow does **not** cascade its runs — runs own a
+        snapshot of the graph, so they stay readable (and resumable)
+        after their workflow is gone.
+        """
+
+    # ------------------------------------------------------------------
+    # Workflow runs
+    # ------------------------------------------------------------------
+
+    @abstractmethod
+    async def upsert_workflow_run(
+        self,
+        user_id: str,
+        record: WorkflowRunRecord,
+    ) -> WorkflowRunRecord:
+        """Persist a run (create or overwrite)."""
+
+    @abstractmethod
+    async def get_workflow_run(
+        self,
+        user_id: str,
+        run_id: str,
+    ) -> WorkflowRunRecord | None:
+        """Fetch one run by id, or None when absent."""
+
+    @abstractmethod
+    async def list_workflow_runs(
+        self,
+        user_id: str,
+        workflow_id: str | None = None,
+    ) -> list[WorkflowRunRecord]:
+        """The user's runs, newest first; optionally one workflow's."""
+
+    @abstractmethod
+    async def delete_workflow_run(
+        self,
+        user_id: str,
+        run_id: str,
+    ) -> bool:
+        """Delete a run; True when it existed."""
+
+    @abstractmethod
+    async def list_active_workflow_runs(self) -> list[WorkflowRunRecord]:
+        """Every non-terminal run across all users (recovery sweep)."""
 
     # ------------------------------------------------------------------
     # Team persistence

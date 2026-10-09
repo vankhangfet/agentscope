@@ -36,6 +36,7 @@ from agentscope.app.storage import (
     KnowledgeDocumentRecord,
     MCPRecord,
     RoutingConfig,
+    RunStatus,
     ScheduleData,
     ScheduleRecord,
     SessionConfig,
@@ -60,6 +61,8 @@ from agentscope.app.storage import (
     WorkflowGraph,
     WorkflowNode,
     WorkflowRecord,
+    WorkflowRunData,
+    WorkflowRunRecord,
 )
 from agentscope.app.storage._sql._tables import ChannelRow
 from agentscope.agent import ContextConfig, ReActConfig
@@ -1702,6 +1705,49 @@ class AsyncSQLAlchemyStorageAutoMigrateTest(IsolatedAsyncioTestCase):
                 saved = await storage.upsert_workflow("user-1", workflow)
                 fetched = await storage.get_workflow("user-1", saved.id)
                 self.assertEqual(fetched.data.graph.nodes[0].id, "a")
+
+    async def test_migrations_alone_create_the_workflow_runs_table(
+        self,
+    ) -> None:
+        """Same isolation for 0006 — without ``metadata.create_all`` a
+        missing migration surfaces here instead of in production."""
+        import os
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            url = f"sqlite+aiosqlite:///{os.path.join(tmp, 'as.db')}"
+
+            async with AsyncSQLAlchemyStorage(
+                url,
+                auto_migrate=True,
+                create_tables=False,
+            ) as storage:
+                run = WorkflowRunRecord(
+                    user_id="user-1",
+                    data=WorkflowRunData(
+                        workflow_id="wf-1",
+                        workflow_version=1,
+                        workflow_name="pipeline",
+                        graph=WorkflowGraph(
+                            nodes=[
+                                WorkflowNode(
+                                    id="a",
+                                    config=AgentNodeConfig(
+                                        agent_id="agent-1",
+                                    ),
+                                ),
+                            ],
+                        ),
+                        status=RunStatus.RUNNING,
+                    ),
+                )
+                saved = await storage.upsert_workflow_run("user-1", run)
+                fetched = await storage.get_workflow_run("user-1", saved.id)
+                self.assertEqual(fetched.data.graph.nodes[0].id, "a")
+                self.assertEqual(
+                    len(await storage.list_active_workflow_runs()),
+                    1,
+                )
 
 
 class ChannelTimestampPrecisionTest(TestCase):

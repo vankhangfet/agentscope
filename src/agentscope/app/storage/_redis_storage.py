@@ -18,6 +18,7 @@ from ._model import (
     KnowledgeDocumentRecord,
     KnowledgeDocumentStatus,
     MCPRecord,
+    RunStatus,
     ScheduleRecord,
     SessionRecord,
     SessionConfig,
@@ -29,6 +30,7 @@ from ._model import (
     SOPRunRecord,
     TeamRecord,
     WorkflowRecord,
+    WorkflowRunRecord,
 )
 from ._utils import _dump_with_secrets
 from ...credential import CredentialBase
@@ -130,6 +132,15 @@ class RedisStorage(StorageBase):
 
         workflow: str = "agentscope:user:{user_id}:workflow:{workflow_id}"
         workflow_index: str = "agentscope:user:{user_id}:workflows"
+        workflow_run: str = "agentscope:user:{user_id}:workflow_run:{run_id}"
+        workflow_run_index: str = "agentscope:user:{user_id}:workflow_runs"
+        # Per-workflow run index.
+        workflow_run_wf_index: str = (
+            "agentscope:user:{user_id}:workflow:{workflow_id}:runs"
+        )
+        # Global set of ``user_id:run_id`` entries for every
+        # non-terminal run; read by the startup recovery sweep.
+        workflow_run_active_index: str = "agentscope:workflow_runs:active"
 
         team: str = "agentscope:user:{user_id}:team:{team_id}"
         team_index: str = "agentscope:user:{user_id}:teams"
@@ -1884,6 +1895,159 @@ class RedisStorage(StorageBase):
             ),
         )
         return bool(deleted)
+
+    # ------------------------------------------------------------------
+    # Workflow run persistence
+    # ------------------------------------------------------------------
+
+    async def upsert_workflow_run(
+        self,
+        user_id: str,
+        record: WorkflowRunRecord,
+    ) -> WorkflowRunRecord:
+        """Persist a run and index it under the user and its workflow.
+
+        Also maintains the global active index: the run's
+        ``user_id:run_id`` entry is added while it is RUNNING or
+        WAITING_HUMAN and removed in any other state, so the startup
+        recovery sweep only ever sees runs that still need a
+        dispatcher.
+        """
+        record.updated_at = datetime.now()
+        await self._set_with_ttl(
+            self._key(
+                self.key_config.workflow_run,
+                user_id=user_id,
+                run_id=record.id,
+            ),
+            record.model_dump_json(),
+        )
+        await self._client.sadd(
+            self._key(self.key_config.workflow_run_index, user_id=user_id),
+            record.id,
+        )
+        await self._client.sadd(
+            self._key(
+                self.key_config.workflow_run_wf_index,
+                user_id=user_id,
+                workflow_id=record.data.workflow_id,
+            ),
+            record.id,
+        )
+        entry = f"{user_id}:{record.id}"
+        if record.data.status in (RunStatus.RUNNING, RunStatus.WAITING_HUMAN):
+            await self._client.sadd(
+                self.key_config.workflow_run_active_index,
+                entry,
+            )
+        else:
+            await self._client.srem(
+                self.key_config.workflow_run_active_index,
+                entry,
+            )
+        return record
+
+    async def get_workflow_run(
+        self,
+        user_id: str,
+        run_id: str,
+    ) -> WorkflowRunRecord | None:
+        """Fetch one run by id."""
+        raw = await self._client.get(
+            self._key(
+                self.key_config.workflow_run,
+                user_id=user_id,
+                run_id=run_id,
+            ),
+        )
+        return WorkflowRunRecord.model_validate_json(raw) if raw else None
+
+    async def list_workflow_runs(
+        self,
+        user_id: str,
+        workflow_id: str | None = None,
+    ) -> list[WorkflowRunRecord]:
+        """Return the user's runs, newest first; ``workflow_id``
+        narrows the read to one workflow's index."""
+        index_key = (
+            self._key(self.key_config.workflow_run_index, user_id=user_id)
+            if workflow_id is None
+            else self._key(
+                self.key_config.workflow_run_wf_index,
+                user_id=user_id,
+                workflow_id=workflow_id,
+            )
+        )
+        records = []
+        for run_id in await self._client.smembers(index_key):
+            record = await self.get_workflow_run(user_id, run_id)
+            if record is not None:
+                records.append(record)
+        return sorted(
+            records,
+            key=lambda record: record.created_at,
+            reverse=True,
+        )
+
+    async def delete_workflow_run(
+        self,
+        user_id: str,
+        run_id: str,
+    ) -> bool:
+        """Delete one run and all three of its index entries."""
+        record = await self.get_workflow_run(user_id, run_id)
+        await self._client.srem(
+            self._key(self.key_config.workflow_run_index, user_id=user_id),
+            run_id,
+        )
+        if record is not None:
+            await self._client.srem(
+                self._key(
+                    self.key_config.workflow_run_wf_index,
+                    user_id=user_id,
+                    workflow_id=record.data.workflow_id,
+                ),
+                run_id,
+            )
+        await self._client.srem(
+            self.key_config.workflow_run_active_index,
+            f"{user_id}:{run_id}",
+        )
+        deleted = await self._client.delete(
+            self._key(
+                self.key_config.workflow_run,
+                user_id=user_id,
+                run_id=run_id,
+            ),
+        )
+        return bool(deleted)
+
+    async def list_active_workflow_runs(self) -> list[WorkflowRunRecord]:
+        """Every non-terminal run across all users, per the active index.
+
+        Entries whose record key has expired or been deleted externally
+        are pruned from the index (self-healing).
+        """
+        active_key = self.key_config.workflow_run_active_index
+        records = []
+        stale = []
+        for entry in await self._client.smembers(active_key):
+            # Split from the right: ids come from a user-overridable
+            # factory, so a colon can only be safely assumed to be the
+            # one this module wrote between user_id and run_id.
+            try:
+                user_id, run_id = entry.rsplit(":", 1)
+            except ValueError:
+                stale.append(entry)
+                continue
+            record = await self.get_workflow_run(user_id, run_id)
+            if record is not None:
+                records.append(record)
+            else:
+                stale.append(entry)
+        if stale:
+            await self._client.srem(active_key, *stale)
+        return records
 
     # ------------------------------------------------------------------
     # Team persistence

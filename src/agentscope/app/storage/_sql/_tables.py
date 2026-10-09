@@ -248,6 +248,45 @@ class WorkflowRow(_JsonRecordMixin):
     _indexed_fields = ("user_id",)
 
 
+class WorkflowRunRow(_JsonRecordMixin):
+    """One row per :class:`~agentscope.app.storage.WorkflowRunRecord`.
+
+    ``workflow_id`` and ``status`` live inside ``data`` on the record,
+    so they are fed through ``_index_paths`` copies (mirroring
+    :class:`SOPRunRow`'s ``phase``) rather than ``_indexed_fields`` —
+    that mechanism only reaches top-level record fields. The ``status``
+    column lets the startup recovery sweep filter non-terminal runs
+    without deserialising :attr:`payload`.
+    """
+
+    __tablename__ = "workflow_runs"
+
+    user_id: Mapped[str] = mapped_column(
+        String(_ID_LEN),
+        nullable=False,
+        index=True,
+    )
+    workflow_id: Mapped[str] = mapped_column(
+        String(_ID_LEN),
+        nullable=False,
+        index=True,
+    )
+    status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        index=True,
+    )
+
+    _indexed_fields = ("user_id",)
+
+    # Copies from inside ``data``: which workflow this run executes and
+    # where it stands, for per-workflow listing and the recovery sweep.
+    _index_paths: ClassVar[dict[str, str]] = {
+        "workflow_id": "data.workflow_id",
+        "status": "data.status",
+    }
+
+
 class ScheduleRow(_JsonRecordMixin):
     """One row per :class:`~agentscope.app.storage.ScheduleRecord`."""
 

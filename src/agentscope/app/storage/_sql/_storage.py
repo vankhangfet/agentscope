@@ -29,6 +29,7 @@ from .._model import (
     KnowledgeDocumentRecord,
     KnowledgeDocumentStatus,
     MCPRecord,
+    RunStatus,
     ScheduleRecord,
     SessionRecord,
     SessionConfig,
@@ -38,6 +39,7 @@ from .._model import (
     SOPRunRecord,
     TeamRecord,
     WorkflowRecord,
+    WorkflowRunRecord,
 )
 from .._utils import _dump_with_secrets
 from ._mappers import _from_record, _to_record
@@ -57,6 +59,7 @@ from ._tables import (
     SOPRunRow,
     TeamRow,
     WorkflowRow,
+    WorkflowRunRow,
 )
 from ....credential import CredentialBase
 from ....message import Msg
@@ -2275,3 +2278,81 @@ class AsyncSQLAlchemyStorage(StorageBase):
             await sess.delete(row)
             await sess.commit()
         return True
+
+    # ------------------------------------------------------------------
+    # Workflow runs
+    # ------------------------------------------------------------------
+
+    async def upsert_workflow_run(
+        self,
+        user_id: str,
+        record: WorkflowRunRecord,
+    ) -> WorkflowRunRecord:
+        """Persist a run (create or overwrite)."""
+        _ = user_id  # scoping is enforced by the caller
+        return await self._write_row(WorkflowRunRow, record)
+
+    async def get_workflow_run(
+        self,
+        user_id: str,
+        run_id: str,
+    ) -> WorkflowRunRecord | None:
+        """Fetch one run; owner-scoped."""
+        async with self._session() as sess:
+            row = await sess.get(WorkflowRunRow, run_id)
+        if row is None or row.user_id != user_id:
+            return None
+        return _to_record(row, WorkflowRunRecord)
+
+    async def list_workflow_runs(
+        self,
+        user_id: str,
+        workflow_id: str | None = None,
+    ) -> list[WorkflowRunRecord]:
+        """Return the user's runs, newest first, filtered in the
+        database."""
+        from sqlalchemy import select
+
+        stmt = select(WorkflowRunRow).where(WorkflowRunRow.user_id == user_id)
+        if workflow_id is not None:
+            stmt = stmt.where(WorkflowRunRow.workflow_id == workflow_id)
+        stmt = stmt.order_by(WorkflowRunRow.created_at.desc())
+
+        async with self._session() as sess:
+            rows = (await sess.execute(stmt)).scalars().all()
+        return [_to_record(r, WorkflowRunRecord) for r in rows]
+
+    async def delete_workflow_run(
+        self,
+        user_id: str,
+        run_id: str,
+    ) -> bool:
+        """Delete one run; owner-scoped."""
+        from sqlalchemy import delete
+
+        async with self._session() as sess:
+            result = await sess.execute(
+                delete(WorkflowRunRow).where(
+                    WorkflowRunRow.id == run_id,
+                    WorkflowRunRow.user_id == user_id,
+                ),
+            )
+            await sess.commit()
+        return result.rowcount > 0
+
+    async def list_active_workflow_runs(self) -> list[WorkflowRunRecord]:
+        """Every non-terminal run across all users (recovery sweep).
+
+        ``status`` is a promoted column, so the filter runs in the
+        database and terminal rows are never deserialised.
+        """
+        from sqlalchemy import select
+
+        stmt = select(WorkflowRunRow).where(
+            WorkflowRunRow.status.in_(
+                (RunStatus.RUNNING.value, RunStatus.WAITING_HUMAN.value),
+            ),
+        )
+        async with self._session() as sess:
+            rows = (await sess.execute(stmt)).scalars().all()
+        return [_to_record(r, WorkflowRunRecord) for r in rows]
