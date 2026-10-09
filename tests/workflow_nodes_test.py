@@ -8,6 +8,7 @@ import fakeredis.aioredis
 
 from agentscope.app._service._workflow_nodes import (
     ApprovalPending,
+    ChatRunner,
     NodeFailure,
     NodeHandlers,
 )
@@ -28,7 +29,8 @@ from agentscope.app.storage import (
     WorkflowRunData,
     WorkflowRunRecord,
 )
-from agentscope.message import AssistantMsg, Msg
+from agentscope.message import AssistantMsg, Msg, TextBlock
+from agentscope.types import ErrorInfo, ErrorType, ReplyFinishedReason
 
 USER = "user-1"
 
@@ -93,13 +95,21 @@ def _run(
 class _FakeRunner:
     """Records turns and files canned assistant replies.
 
-    Replies are consumed in order and the last one repeats, so a
-    single canned reply serves any number of turns.
+    The incoming user message is persisted before the reply — the
+    page shape prod ``ChatService.run`` leaves behind — and replies
+    are consumed in order, the last one repeating, so a single canned
+    reply serves any number of turns.
     """
 
-    def __init__(self, storage: RedisStorage, *replies: str) -> None:
+    def __init__(
+        self,
+        storage: RedisStorage,
+        *replies: str,
+        structured: dict[str, Any] | None = None,
+    ) -> None:
         self._storage = storage
         self._replies = list(replies) or ["canned"]
+        self._structured = structured
         self.calls: list[tuple[str, str, str, Msg]] = []
 
     async def __call__(
@@ -110,14 +120,86 @@ class _FakeRunner:
         msg: Msg,
     ) -> None:
         self.calls.append((user_id, session_id, agent_id, msg))
+        await self._storage.upsert_message(user_id, session_id, msg)
         reply = self._replies.pop(0) if len(self._replies) > 1 else (
             self._replies[0]
         )
         await self._storage.upsert_message(
             user_id,
             session_id,
-            AssistantMsg(name=agent_id, content=reply),
+            AssistantMsg(
+                name=agent_id,
+                content=reply,
+                structured_output=self._structured,
+            ),
         )
+
+
+class _SilentRunner:
+    """Records turns but files no reply at all."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str, str, Msg]] = []
+
+    async def __call__(
+        self,
+        user_id: str,
+        session_id: str,
+        agent_id: str,
+        msg: Msg,
+    ) -> None:
+        self.calls.append((user_id, session_id, agent_id, msg))
+
+
+class _FailedTurnRunner:
+    """Files an error-bearing reply — prod's shape for a failed turn.
+
+    ``ChatService.run`` swallows its exceptions and closes the reply
+    with an error or a non-COMPLETED reason; the handler must refuse
+    to read those as node output.
+    """
+
+    def __init__(
+        self,
+        storage: RedisStorage,
+        finished_reason: ReplyFinishedReason,
+        error: ErrorInfo | None = None,
+    ) -> None:
+        self._storage = storage
+        self._reason = finished_reason
+        self._error = error
+
+    async def __call__(
+        self,
+        user_id: str,
+        session_id: str,
+        agent_id: str,
+        msg: Msg,
+    ) -> None:
+        await self._storage.upsert_message(
+            user_id,
+            session_id,
+            Msg(
+                name=agent_id,
+                content=[TextBlock(text="partial text")],
+                role="assistant",
+                finished_reason=self._reason,
+                error=self._error,
+            ),
+        )
+
+
+class _RaisingRunner:
+    """Blows up where the chat runner would."""
+
+    async def __call__(
+        self,
+        user_id: str,
+        session_id: str,
+        agent_id: str,
+        msg: Msg,
+    ) -> None:
+        raise RuntimeError("storage exploded")
 
 
 class _FakeJudgeFactory:
@@ -149,7 +231,7 @@ class NodeHandlersTest(IsolatedAsyncioTestCase):
         )
         self.judge = _FakeJudgeFactory(self.judge_id)
 
-    def _handlers(self, runner: _FakeRunner) -> NodeHandlers:
+    def _handlers(self, runner: ChatRunner) -> NodeHandlers:
         """The handler set under test."""
         return NodeHandlers(self.storage, runner, self.judge)
 
@@ -280,6 +362,86 @@ class NodeHandlersTest(IsolatedAsyncioTestCase):
             ).handle(USER, run, node)
 
         self.assertIn("no longer exists", str(ctx.exception))
+
+    async def test_agent_reply_structured_passthrough(self) -> None:
+        agent_id = await _seed_agent(self.storage, "writer", _model())
+        node = WorkflowNode(id="draft", config=AgentNodeConfig(
+            agent_id=agent_id,
+        ))
+
+        output = await self._handlers(
+            _FakeRunner(self.storage, structured={"k": 1}),
+        ).handle(USER, _run([node]), node)
+
+        self.assertEqual(
+            output,
+            {"text": "canned", "structured": {"k": 1}},
+        )
+
+    async def test_agent_silent_turn_fails(self) -> None:
+        agent_id = await _seed_agent(self.storage, "writer", _model())
+        node = WorkflowNode(id="draft", config=AgentNodeConfig(
+            agent_id=agent_id,
+        ))
+
+        with self.assertRaises(NodeFailure) as ctx:
+            await self._handlers(_SilentRunner()).handle(
+                USER,
+                _run([node]),
+                node,
+            )
+
+        self.assertIn("without a reply", str(ctx.exception))
+
+    async def test_read_reply_rejects_error_bearing_reply(self) -> None:
+        agent_id = await _seed_agent(self.storage, "writer", _model())
+        node = WorkflowNode(id="draft", config=AgentNodeConfig(
+            agent_id=agent_id,
+        ))
+
+        with self.assertRaises(NodeFailure) as ctx:
+            await self._handlers(
+                _FailedTurnRunner(
+                    self.storage,
+                    ReplyFinishedReason.ERROR,
+                    ErrorInfo(type=ErrorType.UPSTREAM, message="boom"),
+                ),
+            ).handle(USER, _run([node]), node)
+
+        self.assertIn("turn failed", str(ctx.exception))
+        self.assertIn("boom", str(ctx.exception))
+
+    async def test_read_reply_rejects_interrupted_reply(self) -> None:
+        agent_id = await _seed_agent(self.storage, "writer", _model())
+        node = WorkflowNode(id="draft", config=AgentNodeConfig(
+            agent_id=agent_id,
+        ))
+
+        with self.assertRaises(NodeFailure) as ctx:
+            await self._handlers(
+                _FailedTurnRunner(
+                    self.storage,
+                    ReplyFinishedReason.INTERRUPTED,
+                ),
+            ).handle(USER, _run([node]), node)
+
+        self.assertIn("interrupted", str(ctx.exception))
+
+    async def test_unexpected_error_becomes_node_failure(self) -> None:
+        agent_id = await _seed_agent(self.storage, "writer", _model())
+        node = WorkflowNode(id="draft", config=AgentNodeConfig(
+            agent_id=agent_id,
+        ))
+
+        with self.assertRaises(NodeFailure) as ctx:
+            await self._handlers(_RaisingRunner()).handle(
+                USER,
+                _run([node]),
+                node,
+            )
+
+        self.assertIn("storage exploded", str(ctx.exception))
+        self.assertIsInstance(ctx.exception.__cause__, RuntimeError)
 
     async def test_condition_rule_match_and_miss(self) -> None:
         node = WorkflowNode(

@@ -10,8 +10,9 @@ import re
 from typing import Any, Awaitable, Callable
 
 from ..._utils._common import _generate_id
-from ...message import UserMsg
+from ...message import ToolCallState, UserMsg
 from ...state import AgentState
+from ...types import ReplyFinishedReason
 
 from ..storage import (
     AgentNodeConfig,
@@ -120,8 +121,10 @@ class NodeHandlers:
             `dict[str, Any]`: The node's blackboard output.
 
         Raises:
-            `NodeFailure`: The attempt failed, or the config type is
-                unknown to this handler set.
+            `NodeFailure`: The attempt failed, the config type is
+                unknown to this handler set, or an unexpected error
+                (storage, judge factory, chat runner) interrupted
+                the attempt.
         """
         handler = self._handlers.get(node.config.type)
         if handler is None:
@@ -129,7 +132,17 @@ class NodeHandlers:
                 f"Node {node.id!r} has unknown config type "
                 f"{node.config.type!r}.",
             )
-        return await handler(user_id, run, node)
+        try:
+            return await handler(user_id, run, node)
+        except (NodeFailure, ApprovalPending):
+            # The handlers' own vocabulary: reported as a failed
+            # attempt or parked, never re-wrapped.
+            raise
+        except Exception as exc:
+            # Storage, the judge factory or the chat runner blew
+            # up: one failed attempt, not a broken engine.
+            # CancelledError is a BaseException and passes through.
+            raise NodeFailure(str(exc)) from exc
 
     async def handle_agent(
         self,
@@ -205,7 +218,9 @@ class NodeHandlers:
         skipped by that first pass. When nothing matches, a generic
         judge agent — its system prompt only lists the labels — is
         asked through the user message, which carries the specific
-        instruction plus a JSON dump of the blackboard.
+        instruction plus a JSON dump of the blackboard. When several
+        ``llm_judge`` arms exist, the first one's instruction is the
+        one asked.
         """
         cfg = node.config
         if not isinstance(cfg, ConditionNodeConfig):
@@ -537,6 +552,11 @@ class NodeHandlers:
 
         ``list_messages`` returns a page in chronological order, so
         the run's final reply is the last assistant message in it.
+        That message also decides the attempt's health: prod
+        ``ChatService.run`` swallows its exceptions and closes the
+        reply with an error or a non-COMPLETED reason instead of
+        raising, so an error-bearing turn must fail the node rather
+        than feed its partial text downstream.
         """
         messages, _ = await self._storage.list_messages(
             user_id,
@@ -544,11 +564,35 @@ class NodeHandlers:
             limit=20,
         )
         for message in reversed(messages):
-            if message.role == "assistant":
-                return {
-                    "text": message.get_text_content() or "",
-                    "structured": message.structured_output,
-                }
+            if message.role != "assistant":
+                continue
+            if message.error is not None:
+                raise NodeFailure(
+                    f"Node {node_id!r}: agent {agent_id!r} turn "
+                    f"failed: {message.error.message} "
+                    f"({message.error.type}).",
+                )
+            if message.finished_reason not in (
+                None,
+                ReplyFinishedReason.COMPLETED,
+            ):
+                raise NodeFailure(
+                    f"Node {node_id!r}: agent {agent_id!r} turn "
+                    f"ended as {message.finished_reason.value!r}.",
+                )
+            if any(
+                block.state
+                in (ToolCallState.PENDING, ToolCallState.ASKING)
+                for block in message.get_content_blocks("tool_call")
+            ):
+                raise NodeFailure(
+                    f"Node {node_id!r}: agent {agent_id!r} turn ended "
+                    "with a tool call still awaiting a decision.",
+                )
+            return {
+                "text": message.get_text_content() or "",
+                "structured": message.structured_output,
+            }
         raise NodeFailure(
             f"Node {node_id!r}: agent {agent_id!r} ended its turn "
             f"without a reply in session {session_id!r}.",

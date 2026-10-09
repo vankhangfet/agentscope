@@ -281,6 +281,20 @@ class WorkflowGraphValidationTest(TestCase):
         with self.assertRaises(ValidationError):
             WorkflowGraph(nodes=[], edges=[])
 
+    def test_node_ids_keep_the_engine_namespace_clean(self) -> None:
+        """Colons belong to derived session keys and a leading
+        underscore to the blackboard's bookkeeping filter, so a node
+        id may use neither; alphanumerics, dashes and underscores
+        are fine."""
+        with self.assertRaises(ValidationError):
+            WorkflowNode(id="x:judge", config=_agent("ok").config)
+        with self.assertRaises(ValidationError):
+            WorkflowNode(id="_sessions", config=_agent("ok").config)
+        self.assertEqual(
+            WorkflowNode(id="a-b_2", config=_agent("ok").config).id,
+            "a-b_2",
+        )
+
 
 class WorkflowGraphModelTest(TestCase):
     """The models themselves, beyond the validation rules."""

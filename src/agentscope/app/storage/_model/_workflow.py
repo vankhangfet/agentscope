@@ -177,7 +177,14 @@ class WorkflowNode(BaseModel):
 
     id: str = Field(
         min_length=1,
-        description="Unique node id within the workflow.",
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]*$",
+        description=(
+            "Unique node id within the workflow. Must start with an "
+            "alphanumeric and continue with alphanumerics, dashes or "
+            "underscores: colons are reserved for the engine's derived "
+            "session keys, and a leading underscore for the blackboard's "
+            "bookkeeping filter."
+        ),
     )
 
     position: WorkflowPosition = Field(
