@@ -1743,6 +1743,7 @@ class AsyncSQLAlchemyStorageAutoMigrateTest(IsolatedAsyncioTestCase):
                 )
                 saved = await storage.upsert_workflow_run("user-1", run)
                 fetched = await storage.get_workflow_run("user-1", saved.id)
+                self.assertIsNotNone(fetched)
                 self.assertEqual(fetched.data.graph.nodes[0].id, "a")
                 self.assertEqual(
                     len(await storage.list_active_workflow_runs()),

@@ -3,7 +3,7 @@
 """Workflow run record persistence on both storage backends."""
 from contextlib import AsyncExitStack
 from datetime import datetime
-from unittest import IsolatedAsyncioTestCase
+from unittest import IsolatedAsyncioTestCase, TestCase
 
 import fakeredis.aioredis
 
@@ -76,6 +76,7 @@ class _WorkflowRunStorageContractMixin:
         storage = await self._make_storage()
         saved = await storage.upsert_workflow_run("user-1", _run_record())
         fetched = await storage.get_workflow_run("user-1", saved.id)
+        self.assertIsNotNone(fetched)
         self.assertEqual(fetched.data.status, RunStatus.RUNNING)
         self.assertEqual(fetched.data.graph.nodes[0].id, "a")
 
@@ -147,6 +148,11 @@ class _WorkflowRunStorageContractMixin:
             await storage.list_workflow_runs("user-2"),
             [],
         )
+        # Deleting as the wrong owner must neither remove the run nor
+        # drop its active-index entry.
+        self.assertFalse(
+            await storage.delete_workflow_run("user-2", run.id),
+        )
 
     async def test_delete(self) -> None:
         storage = await self._make_storage()
@@ -171,6 +177,34 @@ class RedisWorkflowRunStorageTest(
 
     async def _make_storage(self) -> StorageBase:
         return make_storage()
+
+    async def test_active_index_prunes_terminal_entries(self) -> None:
+        """An entry whose run has gone terminal (write divergence: the
+        terminal upsert's ``srem`` was lost) is neither returned nor
+        kept in the index."""
+        storage = await self._make_storage()
+        run = await storage.upsert_workflow_run("user-1", _run_record())
+        run.data.status = RunStatus.SUCCEEDED
+        await storage.upsert_workflow_run("user-1", run)
+        # Simulate the divergence: the entry survived the removal.
+        active_key = storage.key_config.workflow_run_active_index
+        await storage._client.sadd(active_key, f"user-1:{run.id}")
+        self.assertEqual(await storage.list_active_workflow_runs(), [])
+        self.assertEqual(
+            await storage._client.smembers(active_key),
+            set(),
+        )
+
+
+class RunStatusColumnLengthTest(TestCase):
+    """``workflow_runs.status`` is a ``String(32)`` column.
+
+    SQLite silently ignores string lengths, but Postgres and MySQL
+    enforce them — a longer enum value would only fail in production.
+    """
+
+    def test_status_values_fit_the_column(self) -> None:
+        self.assertLessEqual(max(len(s.value) for s in RunStatus), 32)
 
 
 class SqlWorkflowRunStorageTest(

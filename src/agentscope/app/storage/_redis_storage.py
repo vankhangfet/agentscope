@@ -56,6 +56,14 @@ def _watch_error() -> type[BaseException]:
     return WatchError
 
 
+# Statuses that keep a run in the global active index. The recovery
+# sweep resumes crashed RUNNING executions and parked WAITING_HUMAN
+# timeouts; every other state needs no dispatcher. Shared by
+# ``upsert_workflow_run`` (index maintenance) and
+# ``list_active_workflow_runs`` (self-healing) so the two cannot drift.
+_ACTIVE_RUN_STATUSES = (RunStatus.RUNNING, RunStatus.WAITING_HUMAN)
+
+
 class RedisStorage(StorageBase):
     """The Redis storage implementation."""
 
@@ -1935,7 +1943,7 @@ class RedisStorage(StorageBase):
             record.id,
         )
         entry = f"{user_id}:{record.id}"
-        if record.data.status in (RunStatus.RUNNING, RunStatus.WAITING_HUMAN):
+        if record.data.status in _ACTIVE_RUN_STATUSES:
             await self._client.sadd(
                 self.key_config.workflow_run_active_index,
                 entry,
@@ -2025,8 +2033,10 @@ class RedisStorage(StorageBase):
     async def list_active_workflow_runs(self) -> list[WorkflowRunRecord]:
         """Every non-terminal run across all users, per the active index.
 
-        Entries whose record key has expired or been deleted externally
-        are pruned from the index (self-healing).
+        Self-healing: entries whose record key has expired, been
+        deleted externally, or whose run has since reached a
+        non-active state (the terminal upsert's ``srem`` was lost) are
+        pruned from the index rather than returned.
         """
         active_key = self.key_config.workflow_run_active_index
         records = []
@@ -2041,7 +2051,10 @@ class RedisStorage(StorageBase):
                 stale.append(entry)
                 continue
             record = await self.get_workflow_run(user_id, run_id)
-            if record is not None:
+            if (
+                record is not None
+                and record.data.status in _ACTIVE_RUN_STATUSES
+            ):
                 records.append(record)
             else:
                 stale.append(entry)
