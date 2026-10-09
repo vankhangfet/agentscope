@@ -63,6 +63,19 @@ _SESSIONS_KEY = "_sessions"
 
 _JUDGE_RULE_PREFIX = "llm_judge:"
 
+_PARKED_TOOL_STATES = (
+    ToolCallState.PENDING,
+    ToolCallState.ASKING,
+    ToolCallState.SUBMITTED,
+)
+"""Block states meaning the turn parked on a tool-call decision.
+
+``asking`` and ``submitted`` are what the chat and session services
+treat as a parked turn; ``pending`` is belt-and-braces for a turn
+that ended before the permission system even looked at the call.
+``allowed`` and ``finished`` mean the turn went on, so they stay
+unflagged."""
+
 
 class NodeHandlers:
     """The four node behaviours a workflow run dispatches to.
@@ -583,8 +596,7 @@ class NodeHandlers:
                     f"ended as {message.finished_reason.value!r}.",
                 )
             if any(
-                block.state
-                in (ToolCallState.PENDING, ToolCallState.ASKING)
+                block.state in _PARKED_TOOL_STATES
                 for block in message.get_content_blocks("tool_call")
             ):
                 raise NodeFailure(

@@ -29,7 +29,13 @@ from agentscope.app.storage import (
     WorkflowRunData,
     WorkflowRunRecord,
 )
-from agentscope.message import AssistantMsg, Msg, TextBlock
+from agentscope.message import (
+    AssistantMsg,
+    Msg,
+    TextBlock,
+    ToolCallBlock,
+    ToolCallState,
+)
 from agentscope.types import ErrorInfo, ErrorType, ReplyFinishedReason
 
 USER = "user-1"
@@ -200,6 +206,42 @@ class _RaisingRunner:
         msg: Msg,
     ) -> None:
         raise RuntimeError("storage exploded")
+
+
+class _ParkedToolRunner:
+    """Files a clean-looking reply whose tool call got no decision.
+
+    ``finished_reason`` and ``error`` are None — exactly the shape
+    that would silently pass every other guard in ``_read_reply``.
+    """
+
+    def __init__(self, storage: RedisStorage, state: ToolCallState) -> None:
+        self._storage = storage
+        self._state = state
+
+    async def __call__(
+        self,
+        user_id: str,
+        session_id: str,
+        agent_id: str,
+        msg: Msg,
+    ) -> None:
+        await self._storage.upsert_message(
+            user_id,
+            session_id,
+            Msg(
+                name=agent_id,
+                content=[
+                    ToolCallBlock(
+                        id="tc-1",
+                        name="search",
+                        input="{}",
+                        state=self._state,
+                    ),
+                ],
+                role="assistant",
+            ),
+        )
 
 
 class _FakeJudgeFactory:
@@ -442,6 +484,25 @@ class NodeHandlersTest(IsolatedAsyncioTestCase):
 
         self.assertIn("storage exploded", str(ctx.exception))
         self.assertIsInstance(ctx.exception.__cause__, RuntimeError)
+
+    async def test_read_reply_rejects_submitted_tool_call(self) -> None:
+        """A SUBMITTED tool call parks the turn in prod, so it must
+        not read as a node success even with no error and no
+        finished reason set."""
+        agent_id = await _seed_agent(self.storage, "writer", _model())
+        node = WorkflowNode(id="draft", config=AgentNodeConfig(
+            agent_id=agent_id,
+        ))
+
+        with self.assertRaises(NodeFailure) as ctx:
+            await self._handlers(
+                _ParkedToolRunner(
+                    self.storage,
+                    ToolCallState.SUBMITTED,
+                ),
+            ).handle(USER, _run([node]), node)
+
+        self.assertIn("still awaiting a decision", str(ctx.exception))
 
     async def test_condition_rule_match_and_miss(self) -> None:
         node = WorkflowNode(
