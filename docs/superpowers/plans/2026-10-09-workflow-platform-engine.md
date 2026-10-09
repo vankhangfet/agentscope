@@ -973,6 +973,8 @@ Add to `WorkflowService`:
 
 ### Task 8: WorkflowEngine orchestrator
 
+**Carry-ins from Task 6's review:** (a) `_ensure_session` creates sessions with bare `AgentState()` (PermissionMode.DEFAULT) — a DEFAULT-mode tool confirmation parks the turn; `_read_reply` now fails error-bearing turns so this surfaces as NodeFailure under the retry budget, but Task 8 should decide (and document) whether workflow agent sessions want a specific permission mode; (b) iterate-loop retries re-run all items — a per-item progress stash (`context[f"_loop:{node_id}"]`) would resume at the failed item; deferred, v1 accepts the cost; (c) reuse `NodeHandlers._blackboard` rather than re-deriving.
+
 **Files:**
 - Create: `src/agentscope/app/_service/_workflow_engine.py`
 - Modify: `src/agentscope/app/_service/__init__.py`, `_lifespan.py` (construct engine with real chat runner, `app.state.workflow_engine`), `deps.py` (`get_workflow_engine`)
