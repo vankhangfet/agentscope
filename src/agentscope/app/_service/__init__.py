@@ -29,6 +29,7 @@ from ._sop import SessionSOPStep, SOPService
 from ._toolkit import get_toolkit
 from ._download_token import sign_download_token, verify_download_token
 from ._workflow import WorkflowService
+from ._workflow_engine import WorkflowEngine, make_judge_agent_factory
 from ._workspace import GitStatus, WorkspaceService, WorkspaceStatus
 
 __all__ = [
@@ -55,7 +56,9 @@ __all__ = [
     "SessionProjection",
     "SubagentHitlProjector",
     "WorkspaceService",
+    "WorkflowEngine",
     "WorkflowService",
+    "make_judge_agent_factory",
     "sign_download_token",
     "verify_download_token",
     "WorkspaceStatus",

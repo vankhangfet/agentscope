@@ -26,7 +26,9 @@ from ._service import (
     SessionService,
     SOPService,
     WorkspaceService,
+    WorkflowEngine,
     WorkflowService,
+    make_judge_agent_factory,
 )
 
 if TYPE_CHECKING:
@@ -220,6 +222,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
 
         app.state.workflow_service = WorkflowService(storage=storage)
+
+        # The engine drives runs the service creates: it dispatches
+        # ready nodes, persists every transition and parks on
+        # approvals. Recovery runs before the app serves traffic so a
+        # crash never leaves a run silently stuck.
+        workflow_engine = WorkflowEngine(
+            storage=storage,
+            message_bus=message_bus,
+            chat_runner=chat_service.run,
+            judge_agent_factory=await make_judge_agent_factory(storage),
+        )
+        app.state.workflow_engine = workflow_engine
+        await workflow_engine.recover_stale_runs()
 
         # ---------------- Knowledge-base wiring ----------------
         knowledge_base_service = None

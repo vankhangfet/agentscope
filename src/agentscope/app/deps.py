@@ -22,6 +22,7 @@ from ._service import (
     ResourceAccessService,
     SessionService,
     WorkspaceService,
+    WorkflowEngine,
     WorkflowService,
 )
 from ._types import AgentMiddlewareFactory, AgentToolFactory
@@ -202,6 +203,18 @@ async def get_workflow_service(request: Request) -> WorkflowService:
         `WorkflowService`: The workflow service stored in ``app.state``.
     """
     return request.app.state.workflow_service
+
+
+async def get_workflow_engine(request: Request) -> WorkflowEngine:
+    """Return the application-wide workflow run engine.
+
+    Args:
+        request (`Request`): The incoming FastAPI request.
+
+    Returns:
+        `WorkflowEngine`: The engine stored in ``app.state``.
+    """
+    return request.app.state.workflow_engine
 
 
 async def get_workspace_manager(request: Request) -> WorkspaceManagerBase:
