@@ -56,7 +56,11 @@ class RenderTemplateTest(TestCase):
     def test_missing_path_raises_render_error(self) -> None:
         with self.assertRaises(RenderError) as ctx:
             render_template("{{nodes.ghost.output.text}}", CONTEXT)
-        self.assertIn("nodes.ghost", str(ctx.exception))
+        self.assertIn(
+            "nodes.ghost.output.text",
+            str(ctx.exception),
+        )
+        self.assertIn("no 'ghost' under nodes", str(ctx.exception))
 
     def test_none_renders_as_empty(self) -> None:
         context = {"input": {"topic": None}}

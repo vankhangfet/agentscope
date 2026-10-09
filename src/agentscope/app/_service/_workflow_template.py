@@ -42,9 +42,9 @@ def render_template(template: str, context: dict[str, Any]) -> str:
                 value = value[part]
             else:
                 raise RenderError(
-                    "Template path '{{"
-                    + ".".join(walked)
-                    + "}}' cannot be resolved from the run context.",
+                    f"Template path '{path}' cannot be resolved: "
+                    f"no {part!r} under "
+                    f"{'.'.join(walked[:-1]) or 'the context root'}.",
                 )
         if value is None:
             return ""
