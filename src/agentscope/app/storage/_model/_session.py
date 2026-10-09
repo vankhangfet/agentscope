@@ -91,6 +91,18 @@ class SOPOrigin(BaseModel):
     """Which of the run's conversations this is."""
 
 
+class WorkflowOrigin(BaseModel):
+    """A session a workflow run opened for one of its agent nodes."""
+
+    type: Literal["workflow"] = "workflow"
+
+    workflow_run_id: str
+    """The run that opened it."""
+
+    node_id: str
+    """Which node's conversation this is."""
+
+
 # How a session came to exist. Fixed when the session is created and
 # never rewritten, which is what separates it from
 # ``SessionRecord.team_id``: team membership is granted by a tool call
@@ -103,6 +115,7 @@ SessionOrigin = Annotated[
         ChannelOrigin,
         TeamOrigin,
         SOPOrigin,
+        WorkflowOrigin,
     ],
     Field(discriminator="type"),
 ]

@@ -10,11 +10,16 @@ from agentscope.app.storage import (
     AgentNodeConfig,
     NodeRunState,
     RunStatus,
+    SessionConfig,
+    SessionRecord,
+    SOPOrigin,
     WorkflowGraph,
     WorkflowNode,
+    WorkflowOrigin,
     WorkflowRunData,
     WorkflowRunRecord,
 )
+from agentscope.state import AgentState
 
 
 def _graph() -> WorkflowGraph:
@@ -115,3 +120,41 @@ class WorkflowRunModelsTest(TestCase):
             restored.data.finished_at,
             datetime(2026, 10, 9, 12, 0),
         )
+
+    def test_workflow_origin_round_trips_in_a_session(self) -> None:
+        """A workflow-opened session carries its origin through JSON."""
+        record = SessionRecord(
+            user_id="u1",
+            agent_id="ag1",
+            config=SessionConfig(workspace_id="ws", name="n"),
+            state=AgentState(),
+            origin=WorkflowOrigin(
+                workflow_run_id="run-1",
+                node_id="research",
+            ),
+        )
+        restored = SessionRecord.model_validate_json(
+            record.model_dump_json(),
+        )
+        self.assertEqual(restored.origin.type, "workflow")
+        self.assertEqual(restored.origin.workflow_run_id, "run-1")
+        self.assertEqual(restored.origin.node_id, "research")
+
+    def test_sop_origin_still_validates(self) -> None:
+        """Extending the union leaves its older members parseable."""
+        restored = SessionRecord.model_validate(
+            {
+                "id": "s1",
+                "user_id": "u1",
+                "agent_id": "ag1",
+                "origin": {
+                    "type": "sop",
+                    "sop_run_id": "r",
+                    "session_key": "k",
+                },
+                "config": {"workspace_id": "ws", "name": "n"},
+            },
+        )
+        self.assertIsInstance(restored.origin, SOPOrigin)
+        self.assertEqual(restored.origin.sop_run_id, "r")
+        self.assertEqual(restored.origin.session_key, "k")

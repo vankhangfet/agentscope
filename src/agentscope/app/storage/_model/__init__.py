@@ -38,6 +38,7 @@ from ._session import (
     ChannelOrigin,
     TeamOrigin,
     SOPOrigin,
+    WorkflowOrigin,
 )
 from ._skill import SkillRecord
 from ._sop import (
@@ -108,6 +109,7 @@ __all__ = [
     "SOPAgentRef",
     "SOPData",
     "SOPOrigin",
+    "WorkflowOrigin",
     "SOPRecord",
     "SOPRunRecord",
     "SOPStepDataV1",
