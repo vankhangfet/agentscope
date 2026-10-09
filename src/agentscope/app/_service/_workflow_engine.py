@@ -62,10 +62,11 @@ class WorkflowEngine:
     park on approvals, resume after crashes.
 
     One dispatcher loop per run per process — :meth:`dispatch` is
-    idempotent while a loop is alive — and up to ``max_parallel`` node
-    attempts in flight. Every read-modify-write of a run record goes
-    through :meth:`_mutate`, which serialises transitions on one write
-    lock and reloads inside it, so concurrent node attempts cannot
+    idempotent through an atomic check-and-register with no await in
+    between — and up to ``max_parallel`` node attempts in flight.
+    Every read-modify-write of a run record goes through
+    :meth:`_mutate`, which serialises transitions on one write lock
+    and reloads inside it, so concurrent node attempts cannot
     overwrite each other's persisted state. Cross-process double
     dispatch is a v1 non-goal: deployments run one engine process, and
     anything a second process races with is caught by the restart
@@ -107,10 +108,14 @@ class WorkflowEngine:
     async def dispatch(self, user_id: str, run_id: str) -> None:
         """Start the dispatcher loop for a run, idempotently.
 
-        While a loop task for the run is alive this is a no-op. A
-        PENDING run is flipped to RUNNING before the loop spawns, so a
-        crash between here and the first node persist still leaves a
-        run the recovery sweep will resume.
+        The live-task check and the registration below have no await
+        between them, so they are atomic under asyncio's cooperative
+        scheduling: of two racing dispatch calls — two approvals on
+        different parked nodes of one run, a dispatch during recovery —
+        exactly one spawns a loop. Everything that used to be probed
+        here before spawning (existence, terminal status, the
+        PENDING→RUNNING flip) moved into :meth:`_loop`'s head, so this
+        body never yields at all.
 
         Args:
             user_id (`str`): The run's owner.
@@ -119,16 +124,9 @@ class WorkflowEngine:
         live = self._tasks.get(run_id)
         if live is not None and not live.done():
             return
-        run = await self._storage.get_workflow_run(user_id, run_id)
-        if run is None:
-            # Routers pre-check existence; a vanished run is worth a
-            # log line, not a traceback.
-            logger.warning("Dispatch skipped: run %r not found.", run_id)
-            return
-        if run.data.status in _RUN_TERMINAL:
-            return
-        if run.data.status is RunStatus.PENDING:
-            await self._mutate(user_id, run_id, _resume_run)
+        # create_task schedules without running the loop, so the task
+        # is registered — and visible to any concurrent dispatch —
+        # before this coroutine can yield.
         task = asyncio.create_task(self._loop(user_id, run_id))
         self._tasks[run_id] = task
         task.add_done_callback(
@@ -149,11 +147,25 @@ class WorkflowEngine:
     async def _loop(self, user_id: str, run_id: str) -> None:
         """Dispatch ready nodes until the run parks, finishes or fails.
 
-        Each pass reloads the run fresh, so transitions persisted by
-        node attempts (including retries) are always seen. A pass that
+        The entry checks are what ``dispatch`` probes before spawning:
+        a missing run logs and stops (routers pre-check existence; a
+        vanished run is worth a log line, not a traceback), a terminal
+        run has nothing to drive, and a PENDING run is flipped to
+        RUNNING before the first pass — so a crash after the flip
+        leaves a run the recovery sweep will resume. Each pass then
+        reloads the run fresh, so transitions persisted by node
+        attempts (including retries) are always seen. A pass that
         finds nothing runnable either parks the run on a WAITING_HUMAN
         node or finalizes it — no PENDING node can be left behind.
         """
+        run = await self._storage.get_workflow_run(user_id, run_id)
+        if run is None:
+            logger.warning("Dispatch skipped: run %r not found.", run_id)
+            return
+        if run.data.status in _RUN_TERMINAL:
+            return
+        if run.data.status is RunStatus.PENDING:
+            await self._mutate(user_id, run_id, _resume_run)
         while True:
             run = await self._storage.get_workflow_run(user_id, run_id)
             if run is None:
@@ -267,6 +279,24 @@ class WorkflowEngine:
                         NodeRunState(),
                     )
                     state.error = message
+                    if (
+                        record.data.status in _RUN_TERMINAL
+                        and record.data.status is not RunStatus.FAILED
+                    ):
+                        # The run finalized while this attempt was in
+                        # flight: record the node's own failure, but
+                        # never resurrect or re-fail a finished run.
+                        # (An already-FAILED run may be updated
+                        # idempotently below.)
+                        state.status = RunStatus.FAILED
+                        logger.warning(
+                            "Node %r failed after run %r finalized; "
+                            "keeping run status %r.",
+                            node_id,
+                            record.id,
+                            record.data.status.value,
+                        )
+                        return [(node_id, RunStatus.FAILED, message)]
                     if self._retry_left(node, state.attempts):
                         # Back to PENDING with the failure text kept as
                         # the latest error; the next loop pass runs a

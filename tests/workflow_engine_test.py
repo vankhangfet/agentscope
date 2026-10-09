@@ -171,6 +171,33 @@ class _ScriptedRunner:
         )
 
 
+class _FlippingRunner(_ScriptedRunner):
+    """A turn that fails, but only after flipping its run terminal.
+
+    Reproduces what a raced finalize leaves behind: the node attempt
+    is still mid-flight when the run record says the run already
+    ended.
+    """
+
+    def __init__(self, storage: RedisStorage, run_id: str) -> None:
+        super().__init__(storage)
+        self._run_id = run_id
+
+    async def __call__(
+        self,
+        user_id: str,
+        session_id: str,
+        agent_id: str,
+        msg: Msg,
+    ) -> None:
+        run = await self._storage.get_workflow_run(user_id, self._run_id)
+        if run is not None:
+            run.data.status = RunStatus.SUCCEEDED
+            run.data.finished_at = datetime.now()
+            await self._storage.upsert_workflow_run(user_id, run)
+        raise RuntimeError("late failure")
+
+
 class _FakeJudgeFactory:
     """Returns a pre-created judge agent id."""
 
@@ -241,6 +268,57 @@ class WorkflowEngineTest(IsolatedAsyncioTestCase):
         self.fail(
             f"Run never reached {sorted(s.value for s in statuses)}; "
             f"last status={run.data.status if run else None}, "
+            f"nodes={states}.",
+        )
+
+    async def _poll_event(
+        self,
+        events: list[dict],
+        expected: tuple[str, str | None, str],
+        timeout: float = 2.0,
+    ) -> None:
+        """Wait until *expected* (type, node_id, status) was drained by
+        the listener — the deterministic way to know a transition was
+        both persisted and published."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if expected in {
+                (event["type"], event["node_id"], event["status"])
+                for event in events
+            }:
+                return
+            await asyncio.sleep(0.01)
+        seen = [
+            (event["type"], event["node_id"], event["status"])
+            for event in events
+        ]
+        self.fail(f"Event {expected} never arrived; saw {seen}.")
+
+    async def _poll_node(
+        self,
+        run_id: str,
+        node_id: str,
+        target: RunStatus,
+        timeout: float = 2.0,
+    ) -> WorkflowRunRecord:
+        """Fetch the run until *node_id* reaches *target*."""
+        deadline = time.monotonic() + timeout
+        run: WorkflowRunRecord | None = None
+        while time.monotonic() < deadline:
+            run = await self.storage.get_workflow_run(USER, run_id)
+            if run is not None:
+                state = run.data.node_states.get(node_id, NodeRunState())
+                if state.status is target:
+                    return run
+            await asyncio.sleep(0.01)
+        states = (
+            {k: v.status.value for k, v in run.data.node_states.items()}
+            if run is not None
+            else None
+        )
+        self.fail(
+            f"Node {node_id!r} never reached {target.value}; "
+            f"run status={run.data.status if run else None}, "
             f"nodes={states}.",
         )
 
@@ -352,8 +430,13 @@ class WorkflowEngineTest(IsolatedAsyncioTestCase):
         events, listener = await self._listen(run.id)
 
         await self.engine.dispatch(USER, run.id)
-        done = await self._poll(run.id, {RunStatus.SUCCEEDED})
+        # Wait on the published terminal event, not the stored status:
+        # the persist lands a tick before the subscriber drains it.
+        await self._poll_event(events, ("run", None, "SUCCEEDED"))
         listener.cancel()
+        done = await self.storage.get_workflow_run(USER, run.id)
+        self.assertIsNotNone(done)
+        assert done is not None  # for the type checker
 
         self.assertEqual(done.data.context["a"]["text"], "canned")
         self.assertEqual(done.data.context["b"]["text"], "canned")
@@ -790,3 +873,95 @@ class WorkflowEngineTest(IsolatedAsyncioTestCase):
             RunStatus.WAITING_HUMAN,
         )
         self.assertEqual(self._status(parked, "done"), RunStatus.PENDING)
+
+    # -- 15./16. dispatch atomicity and terminal guards ---------------
+
+    async def test_concurrent_dispatch_spawns_one_loop(self) -> None:
+        """Two racing dispatch() calls spawn exactly one loop task.
+
+        The check for a live task and the registration of the new one
+        must be atomic: the pre-fix code checked, then awaited twice
+        (load, PENDING->RUNNING persist) before registering, so two
+        concurrent callers — two approves on different parked nodes of
+        one run — both passed the check and each spawned a loop. The
+        second loop then saw the first's in-flight RUNNING node, found
+        nothing runnable, and finalized the run mid-flight.
+
+        Fakeredis awaits complete without yielding to the event loop,
+        so the storage read is wrapped in an explicit ``sleep(0)`` to
+        open the race window deterministically — the interleaving two
+        real concurrent approvals produce.
+        """
+        worker_id = await _seed_agent(self.storage, "worker", _model())
+        graph = WorkflowGraph(
+            nodes=[_agent_node("a", worker_id)],
+            edges=[],
+        )
+        run = await self._seed_run(_run(graph))
+
+        entries = 0
+
+        async def slow_loop(user_id: str, run_id: str) -> None:
+            nonlocal entries
+            entries += 1
+            await asyncio.sleep(0.2)
+
+        real_get = self.storage.get_workflow_run
+
+        async def yielding_get(user_id: str, run_id: str):
+            await asyncio.sleep(0)
+            return await real_get(user_id, run_id)
+
+        self.engine._loop = slow_loop  # pylint: disable=attribute-defined-outside-init
+        self.storage.get_workflow_run = yielding_get  # pylint: disable=attribute-defined-outside-init
+        try:
+            await asyncio.gather(
+                self.engine.dispatch(USER, run.id),
+                self.engine.dispatch(USER, run.id),
+            )
+        finally:
+            self.storage.get_workflow_run = real_get  # pylint: disable=attribute-defined-outside-init
+
+        self.assertEqual(entries, 1)
+        live = [t for t in self.engine._tasks.values() if not t.done()]
+        self.assertEqual(len(live), 1)
+
+    async def test_late_node_failure_keeps_finalized_run(self) -> None:
+        """A node failing after the run finalized records its own
+        failure but never overwrites the run's terminal status.
+
+        The node's chat turn flips the run to SUCCEEDED before raising,
+        so the failure transition lands on an already-finalized run —
+        the artifact a raced finalize (or any terminal write between
+        the attempt's start and its outcome) leaves behind.
+        """
+        worker_id = await _seed_agent(self.storage, "worker", _model())
+        graph = WorkflowGraph(
+            nodes=[_agent_node("a", worker_id, max_retries=0)],
+            edges=[],
+        )
+        run = await self._seed_run(_run(graph))
+        engine = WorkflowEngine(
+            storage=self.storage,
+            message_bus=self.bus,
+            chat_runner=_FlippingRunner(self.storage, run.id),
+            judge_agent_factory=_FakeJudgeFactory(self.judge_id),
+        )
+
+        with self.assertLogs(
+            "agentscope.app._service._workflow_engine",
+            level="WARNING",
+        ) as logs:
+            await engine.dispatch(USER, run.id)
+            final = await self._poll_node(run.id, "a", RunStatus.FAILED)
+        # Let the loop's final pass settle before asserting.
+        await asyncio.sleep(0.05)
+
+        self.assertEqual(final.data.status, RunStatus.SUCCEEDED)
+        state = self._state(final, "a")
+        self.assertEqual(state.status, RunStatus.FAILED)
+        self.assertIn("late failure", state.error)
+        self.assertTrue(
+            any("finalized" in line for line in logs.output),
+            logs.output,
+        )
