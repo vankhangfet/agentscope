@@ -26,7 +26,12 @@ from ..storage import (
     WorkflowOrigin,
     WorkflowRunRecord,
 )
-from ._workflow_template import RenderError, render_template
+from ._workflow_template import (
+    RenderError,
+    render_template,
+    resolve_path,
+    scalar_text,
+)
 
 
 ChatRunner = Callable[..., Awaitable[None]]
@@ -57,9 +62,6 @@ _SESSIONS_KEY = "_sessions"
 """Context key holding node session ids — engine bookkeeping."""
 
 _JUDGE_RULE_PREFIX = "llm_judge:"
-
-_MISS = object()
-"""Sentinel for a path the blackboard cannot resolve."""
 
 
 class NodeHandlers:
@@ -325,7 +327,7 @@ class NodeHandlers:
         if verdict != "PASS":
             raise NodeFailure(
                 f"Node {node.id!r}: verifier rejected the attempt: "
-                f"{_as_text(body.get('text'))[:200]!r}.",
+                f"{scalar_text(body.get('text'))[:200]!r}.",
             )
         return {"items": [body], "attempts": 1}
 
@@ -484,7 +486,7 @@ class NodeHandlers:
                 name="workflow",
                 content=(
                     f"Criteria:\n{cfg.verifier_prompt}\n\n"
-                    f"Work to verify:\n{_as_text(body.get('text'))}"
+                    f"Work to verify:\n{scalar_text(body.get('text'))}"
                 ),
             ),
         )
@@ -632,14 +634,15 @@ def _rule_matches(rule: str, blackboard: dict[str, Any]) -> bool:
     Literals: ``true``/``false``/``null``, integers, floats,
     ``"quoted"``/``'quoted'`` strings (exact) and bare words (matched
     case-insensitively against the value as a template renders it).
-    An unresolvable path — or a rule without ``==`` — simply does not
-    match, leaving the fall-through judge to decide.
+    A path the blackboard cannot resolve — or a rule without ``==`` —
+    simply does not match, leaving the fall-through judge to decide.
     """
     path, sep, literal = rule.partition("==")
     if not sep:
         return False
-    resolved = _resolve_path(path.strip(), blackboard)
-    if resolved is _MISS:
+    try:
+        resolved = resolve_path(path.strip(), blackboard)
+    except RenderError:
         return False
     literal = literal.strip()
     quoted = (
@@ -648,21 +651,6 @@ def _rule_matches(rule: str, blackboard: dict[str, Any]) -> bool:
         and literal[0] in ("\"", "'")
     )
     return _operands_equal(resolved, _parse_literal(literal), not quoted)
-
-
-def _resolve_path(path: str, context: dict[str, Any]) -> Any:
-    """Walk a dotted path through nested dicts.
-
-    Returns :data:`_MISS` when any step is absent or not a dict —
-    callers treat that as "does not match" rather than an error.
-    """
-    value: Any = context
-    for part in path.split("."):
-        if isinstance(value, dict) and part in value:
-            value = value[part]
-        else:
-            return _MISS
-    return value
 
 
 def _parse_literal(text: str) -> Any:
@@ -708,17 +696,8 @@ def _operands_equal(resolved: Any, expected: Any, fold: bool) -> bool:
             and resolved == expected
         )
     if fold:
-        return _as_text(resolved).lower() == expected.lower()
+        return scalar_text(resolved).lower() == expected.lower()
     return isinstance(resolved, str) and resolved == expected
-
-
-def _as_text(value: Any) -> str:
-    """Render a scalar the way a template would."""
-    if value is None:
-        return ""
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    return str(value)
 
 
 def _match_label(text: str, labels: list[str]) -> str | None:
