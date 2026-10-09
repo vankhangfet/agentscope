@@ -66,6 +66,12 @@ from ._workflow import (
     WorkflowPosition,
     WorkflowRecord,
 )
+from ._workflow_run import (
+    NodeRunState,
+    RunStatus,
+    WorkflowRunData,
+    WorkflowRunRecord,
+)
 
 __all__ = [
     "AgentData",
@@ -129,4 +135,9 @@ __all__ = [
     "WorkflowNode",
     "WorkflowPosition",
     "WorkflowRecord",
+    # The workflow run models
+    "NodeRunState",
+    "RunStatus",
+    "WorkflowRunData",
+    "WorkflowRunRecord",
 ]

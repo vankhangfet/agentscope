@@ -65,6 +65,10 @@ from ._model import (
     WorkflowNode,
     WorkflowPosition,
     WorkflowRecord,
+    NodeRunState,
+    RunStatus,
+    WorkflowRunData,
+    WorkflowRunRecord,
 )
 
 # A validation helper rather than a model, so it comes straight from its
@@ -164,5 +168,10 @@ __all__ = [
     "WorkflowNode",
     "WorkflowPosition",
     "WorkflowRecord",
+    # The workflow run models
+    "NodeRunState",
+    "RunStatus",
+    "WorkflowRunData",
+    "WorkflowRunRecord",
     "validate_workflow_graph",
 ]
