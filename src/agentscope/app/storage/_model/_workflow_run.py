@@ -5,10 +5,11 @@ each node as the run walks it.
 The graph is copied into the run at start time — later edits to the
 workflow never affect an in-flight run.
 """
+from datetime import datetime
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ._base import _RecordBase
 from ._session import ChatModelConfig
@@ -29,6 +30,11 @@ class RunStatus(str, Enum):
 class NodeRunState(BaseModel):
     """One node's progress inside a run."""
 
+    # The only storage models the engine mutates in place after
+    # construction; revalidating assignments makes a bad value fail
+    # here rather than on the next resume after a persist.
+    model_config = ConfigDict(validate_assignment=True)
+
     status: RunStatus = RunStatus.PENDING
     """The node's own lifecycle (PENDING..SUCCEEDED/FAILED/CANCELLED)."""
 
@@ -43,6 +49,10 @@ class NodeRunState(BaseModel):
 
 class WorkflowRunData(BaseModel):
     """A run's persisted content."""
+
+    # See NodeRunState: mutated in place by the engine hot loop, so
+    # assignments revalidate (build-once siblings skip this).
+    model_config = ConfigDict(validate_assignment=True)
 
     workflow_id: str
     """The workflow this run executes (id at start time)."""
@@ -83,8 +93,17 @@ class WorkflowRunData(BaseModel):
     error: str | None = None
     """Why the whole run failed, when it did."""
 
-    finished_at: str | None = None
-    """ISO timestamp set once terminal."""
+    finished_at: datetime | None = None
+    """Set once the run reaches a terminal state."""
+
+    @field_validator("graph", mode="before")
+    @classmethod
+    def _snapshot_graph(cls, value: Any) -> Any:
+        """Own a deep copy: later edits to the source workflow graph
+        never leak into this run."""
+        if isinstance(value, WorkflowGraph):
+            return value.model_copy(deep=True)
+        return value
 
 
 class WorkflowRunRecord(_RecordBase):

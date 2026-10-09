@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
 """Run record models: the persisted state one workflow run walks
 through. Pure pydantic, no I/O."""
+from datetime import datetime
 from unittest import TestCase
+
+from pydantic import ValidationError
 
 from agentscope.app.storage import (
     AgentNodeConfig,
@@ -46,13 +49,16 @@ class WorkflowRunModelsTest(TestCase):
         self.assertIsNone(state.error)
 
     def test_run_data_holds_a_graph_snapshot(self) -> None:
+        graph = _graph()
         data = WorkflowRunData(
             workflow_id="wf-1",
             workflow_version=3,
             workflow_name="pipeline",
-            graph=_graph(),
+            graph=graph,
             input={"topic": "q3"},
         )
+        graph.nodes[0].id = "mutated"
+        self.assertEqual(data.graph.nodes[0].id, "a")
         self.assertEqual(data.status, RunStatus.PENDING)
         self.assertEqual(data.trigger, "manual")
         self.assertEqual(data.context, {})
@@ -60,6 +66,22 @@ class WorkflowRunModelsTest(TestCase):
         self.assertIsNone(data.chat_model_config)
         self.assertIsNone(data.error)
         self.assertIsNone(data.finished_at)
+
+    def test_assignment_is_validated(self) -> None:
+        state = NodeRunState()
+        with self.assertRaises(ValidationError):
+            state.attempts = -1
+
+        data = WorkflowRunData(
+            workflow_id="wf-1",
+            workflow_version=1,
+            workflow_name="p",
+            graph=_graph(),
+        )
+        with self.assertRaises(ValidationError):
+            data.status = "BOGUS"
+        data.status = "SUCCEEDED"
+        self.assertEqual(data.status, RunStatus.SUCCEEDED)
 
     def test_run_record_round_trips_through_json(self) -> None:
         record = WorkflowRunRecord(
@@ -78,6 +100,7 @@ class WorkflowRunModelsTest(TestCase):
                         output={"text": "draft"},
                     ),
                 },
+                finished_at=datetime(2026, 10, 9, 12, 0),
             ),
         )
         restored = WorkflowRunRecord.model_validate_json(
@@ -87,4 +110,8 @@ class WorkflowRunModelsTest(TestCase):
         self.assertEqual(
             restored.data.node_states["a"].output,
             {"text": "draft"},
+        )
+        self.assertEqual(
+            restored.data.finished_at,
+            datetime(2026, 10, 9, 12, 0),
         )
