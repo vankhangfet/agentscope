@@ -68,7 +68,11 @@ class StartRunResponse(BaseModel):
 
 
 class ListRunsResponse(BaseModel):
-    """The caller's workflow runs."""
+    """The caller's workflow runs.
+
+    Reflects whatever ``workflow_id`` / ``status`` filters the request
+    carried; ``total`` counts the runs actually returned.
+    """
 
     runs: list[WorkflowRunRecord] = Field(
         description="The runs, newest first.",

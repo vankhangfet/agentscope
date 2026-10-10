@@ -14,6 +14,7 @@ from ._model import (
     KnowledgeDocumentRecord,
     KnowledgeDocumentStatus,
     MCPRecord,
+    RunStatus,
     ScheduleRecord,
     SessionRecord,
     SessionConfig,
@@ -1047,8 +1048,10 @@ class StorageBase(ABC):
         self,
         user_id: str,
         workflow_id: str | None = None,
+        status: RunStatus | None = None,
     ) -> list[WorkflowRunRecord]:
-        """The user's runs, newest first; optionally one workflow's."""
+        """The user's runs, newest first; optionally one workflow's
+        and/or one status (``None`` means unfiltered on that axis)."""
 
     @abstractmethod
     async def delete_workflow_run(

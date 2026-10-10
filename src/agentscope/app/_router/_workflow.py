@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
 """Workflow router — CRUD for definitions, lifecycle for runs."""
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from ..deps import (
     get_current_user_id,
     get_workflow_engine,
     get_workflow_service,
 )
+from ..storage import RunStatus
 from ._schema import (
     ApproveRequest,
     CreateWorkflowRequest,
@@ -26,6 +27,33 @@ workflow_router = APIRouter(
     tags=["workflow"],
     responses={404: {"description": "Not found"}},
 )
+
+
+def _parse_run_status(value: str | None) -> RunStatus | None:
+    """Translate the ``?status=`` query string into a RunStatus.
+
+    Args:
+        value (`str | None`):
+            The raw query parameter, or ``None`` when absent.
+
+    Returns:
+        `RunStatus | None`:
+            The matching status, or ``None`` to leave it unfiltered.
+
+    Raises:
+        `HTTPException`:
+            422 listing the allowed values when *value* is not one.
+    """
+    if value is None:
+        return None
+    try:
+        return RunStatus(value)
+    except ValueError:
+        allowed = ", ".join(member.value for member in RunStatus)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Unknown status {value!r}; allowed values: {allowed}.",
+        ) from None
 
 
 @workflow_router.post(
@@ -141,6 +169,10 @@ async def start_run(
 )
 async def list_runs(
     workflow_id: str | None = None,
+    status: str | None = Query(
+        default=None,
+        description="Only runs in this status (a RunStatus value).",
+    ),
     user_id: str = Depends(get_current_user_id),
     service: WorkflowService = Depends(get_workflow_service),
 ) -> ListRunsResponse:
@@ -149,6 +181,9 @@ async def list_runs(
     Args:
         workflow_id (`str | None`):
             Only this workflow's runs when given.
+        status (`str | None`):
+            Only runs in this status when given; one of the
+            :class:`RunStatus` values.
         user_id (`str`):
             Injected authenticated user id.
         service (`WorkflowService`):
@@ -157,8 +192,13 @@ async def list_runs(
     Returns:
         `ListRunsResponse`:
             The caller's runs, newest first.
+
+    Raises:
+        `HTTPException`:
+            422 when ``status`` is not a :class:`RunStatus` value.
     """
-    runs = await service.list_runs(user_id, workflow_id)
+    run_status = _parse_run_status(status)
+    runs = await service.list_runs(user_id, workflow_id, run_status)
     return ListRunsResponse(runs=runs, total=len(runs))
 
 

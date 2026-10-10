@@ -113,6 +113,36 @@ class _WorkflowRunStorageContractMixin:
             2,
         )
 
+    async def test_runs_filter_by_status(self) -> None:
+        storage = await self._make_storage()
+        seeded = {
+            status: await storage.upsert_workflow_run(
+                "user-1",
+                _run_record(status=status),
+            )
+            for status in (
+                RunStatus.RUNNING,
+                RunStatus.SUCCEEDED,
+                RunStatus.WAITING_HUMAN,
+            )
+        }
+        for status, saved in seeded.items():
+            self.assertEqual(
+                [
+                    run.id
+                    for run in await storage.list_workflow_runs(
+                        "user-1",
+                        status=status,
+                    )
+                ],
+                [saved.id],
+            )
+        # No filter: every seeded run comes back.
+        self.assertEqual(
+            len(await storage.list_workflow_runs("user-1")),
+            len(seeded),
+        )
+
     async def test_active_index_tracks_lifecycle(self) -> None:
         storage = await self._make_storage()
         run = await storage.upsert_workflow_run("user-1", _run_record())

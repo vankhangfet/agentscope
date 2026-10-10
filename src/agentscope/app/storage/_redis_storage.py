@@ -1925,37 +1925,49 @@ class RedisStorage(StorageBase):
         dispatcher.
         """
         record.updated_at = datetime.now()
-        await self._set_with_ttl(
-            self._key(
-                self.key_config.workflow_run,
-                user_id=user_id,
-                run_id=record.id,
-            ),
-            record.model_dump_json(),
+        key = self._key(
+            self.key_config.workflow_run,
+            user_id=user_id,
+            run_id=record.id,
         )
-        await self._client.sadd(
-            self._key(self.key_config.workflow_run_index, user_id=user_id),
-            record.id,
-        )
-        await self._client.sadd(
-            self._key(
-                self.key_config.workflow_run_wf_index,
-                user_id=user_id,
-                workflow_id=record.data.workflow_id,
-            ),
-            record.id,
-        )
-        entry = f"{user_id}:{record.id}"
-        if record.data.status in _ACTIVE_RUN_STATUSES:
-            await self._client.sadd(
-                self.key_config.workflow_run_active_index,
-                entry,
+        # This write runs on every engine transition, so the record
+        # SET (plus its optional sliding EXPIRE) and all three index
+        # updates go out as ONE non-transactional pipeline instead of
+        # 4-5 sequential round trips. ``transaction=False`` keeps the
+        # commands a plain batch: no MULTI/EXEC overhead is needed
+        # because the write is idempotent and self-healing (the
+        # active-index readers prune stale entries).
+        async with self._client.pipeline(transaction=False) as pipe:
+            pipe.set(key, record.model_dump_json())
+            if self.key_ttl is not None:
+                pipe.expire(key, self.key_ttl)
+            pipe.sadd(
+                self._key(
+                    self.key_config.workflow_run_index,
+                    user_id=user_id,
+                ),
+                record.id,
             )
-        else:
-            await self._client.srem(
-                self.key_config.workflow_run_active_index,
-                entry,
+            pipe.sadd(
+                self._key(
+                    self.key_config.workflow_run_wf_index,
+                    user_id=user_id,
+                    workflow_id=record.data.workflow_id,
+                ),
+                record.id,
             )
+            entry = f"{user_id}:{record.id}"
+            if record.data.status in _ACTIVE_RUN_STATUSES:
+                pipe.sadd(
+                    self.key_config.workflow_run_active_index,
+                    entry,
+                )
+            else:
+                pipe.srem(
+                    self.key_config.workflow_run_active_index,
+                    entry,
+                )
+            await pipe.execute()
         return record
 
     async def get_workflow_run(
@@ -1977,9 +1989,12 @@ class RedisStorage(StorageBase):
         self,
         user_id: str,
         workflow_id: str | None = None,
+        status: RunStatus | None = None,
     ) -> list[WorkflowRunRecord]:
         """Return the user's runs, newest first; ``workflow_id``
-        narrows the read to one workflow's index."""
+        narrows the read to one workflow's index and ``status``
+        keeps only runs in that state (Redis has no status index,
+        so the filter runs after the fetch)."""
         index_key = (
             self._key(self.key_config.workflow_run_index, user_id=user_id)
             if workflow_id is None
@@ -1989,10 +2004,25 @@ class RedisStorage(StorageBase):
                 workflow_id=workflow_id,
             )
         )
+        keys = [
+            self._key(
+                self.key_config.workflow_run,
+                user_id=user_id,
+                run_id=run_id,
+            )
+            for run_id in await self._client.smembers(index_key)
+        ]
+        # One MGET for the whole index instead of a GET per run —
+        # the listing was an N+1 round-trip scan before. (An empty
+        # batch is skipped: MGET with no keys is a protocol error.)
+        values = await self._client.mget(keys) if keys else []
         records = []
-        for run_id in await self._client.smembers(index_key):
-            record = await self.get_workflow_run(user_id, run_id)
-            if record is not None:
+        for raw in values:
+            if raw is None:
+                # Key expired or was deleted out from under the index.
+                continue
+            record = WorkflowRunRecord.model_validate_json(raw)
+            if status is None or record.data.status == status:
                 records.append(record)
         return sorted(
             records,
@@ -2042,10 +2072,16 @@ class RedisStorage(StorageBase):
         since reached a non-active state (the terminal upsert's
         ``srem`` was lost) are pruned from the index rather than
         returned.
+
+        The record reads are batched through one MGET — the sweep
+        walks this on every startup over every active run, so the
+        per-entry GET made its round trips grow with the run count.
         """
         active_key = self.key_config.workflow_run_active_index
-        records = []
-        stale = []
+        # ``resolved`` holds (entry, user_id, run_id) triples; the
+        # key list below keeps its order so the MGET results zip up.
+        resolved: list[tuple[str, str, str]] = []
+        stale: list[str] = []
         for entry in await self._client.smembers(active_key):
             # Split from the right: ids come from a user-overridable
             # factory, so a colon can only be safely assumed to be the
@@ -2055,8 +2091,23 @@ class RedisStorage(StorageBase):
             except ValueError:
                 stale.append(entry)
                 continue
+            resolved.append((entry, user_id, run_id))
+        keys = [
+            self._key(
+                self.key_config.workflow_run,
+                user_id=user_id,
+                run_id=run_id,
+            )
+            for _entry, user_id, run_id in resolved
+        ]
+        values = await self._client.mget(keys) if keys else []
+        records: list[WorkflowRunRecord] = []
+        for (entry, _user_id, _run_id), raw in zip(resolved, values):
+            if raw is None:
+                stale.append(entry)
+                continue
             try:
-                record = await self.get_workflow_run(user_id, run_id)
+                record = WorkflowRunRecord.model_validate_json(raw)
             except ValueError as exc:
                 # pydantic's ValidationError (a ValueError) on a row
                 # corrupted in place: prune it so the sweep keeps
@@ -2068,10 +2119,7 @@ class RedisStorage(StorageBase):
                 )
                 stale.append(entry)
                 continue
-            if (
-                record is not None
-                and record.data.status in _ACTIVE_RUN_STATUSES
-            ):
+            if record.data.status in _ACTIVE_RUN_STATUSES:
                 records.append(record)
             else:
                 stale.append(entry)

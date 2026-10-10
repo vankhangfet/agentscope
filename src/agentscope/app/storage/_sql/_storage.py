@@ -2308,6 +2308,7 @@ class AsyncSQLAlchemyStorage(StorageBase):
         self,
         user_id: str,
         workflow_id: str | None = None,
+        status: RunStatus | None = None,
     ) -> list[WorkflowRunRecord]:
         """Return the user's runs, newest first, filtered in the
         database."""
@@ -2316,6 +2317,8 @@ class AsyncSQLAlchemyStorage(StorageBase):
         stmt = select(WorkflowRunRow).where(WorkflowRunRow.user_id == user_id)
         if workflow_id is not None:
             stmt = stmt.where(WorkflowRunRow.workflow_id == workflow_id)
+        if status is not None:
+            stmt = stmt.where(WorkflowRunRow.status == status.value)
         stmt = stmt.order_by(WorkflowRunRow.created_at.desc())
 
         async with self._session() as sess:

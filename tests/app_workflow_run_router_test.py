@@ -17,7 +17,15 @@ from pydantic import BaseModel
 
 from agentscope.app import create_app
 from agentscope.app.message_bus import RedisMessageBus
-from agentscope.app.storage import RedisStorage
+from agentscope.app.storage import (
+    AgentNodeConfig,
+    RedisStorage,
+    RunStatus,
+    WorkflowGraph,
+    WorkflowNode,
+    WorkflowRunData,
+    WorkflowRunRecord,
+)
 from agentscope.app.workspace_manager import LocalWorkspaceManager
 from agentscope.credential import CredentialBase, CredentialFactory
 from agentscope.formatter import OpenAIChatFormatter
@@ -150,12 +158,43 @@ def _graph(agent_id: str) -> dict:
     }
 
 
+def _seeded_run(
+    user_id: str,
+    workflow_id: str,
+    agent_id: str,
+    status: RunStatus,
+) -> WorkflowRunRecord:
+    """A one-node run record planted straight into storage.
+
+    Seeding bypasses the engine so a test can observe exactly the
+    statuses it asked for, without racing real transitions.
+    """
+    return WorkflowRunRecord(
+        user_id=user_id,
+        data=WorkflowRunData(
+            workflow_id=workflow_id,
+            workflow_version=1,
+            workflow_name="gate",
+            graph=WorkflowGraph(
+                nodes=[
+                    WorkflowNode(
+                        id="a",
+                        config=AgentNodeConfig(agent_id=agent_id),
+                    ),
+                ],
+            ),
+            status=status,
+        ),
+    )
+
+
 class WorkflowRunRouterTest(IsolatedAsyncioTestCase):
     """Start, verdict, cancel and retry a run over HTTP."""
 
     def setUp(self) -> None:
         workdir = self.enterContext(tempfile.TemporaryDirectory())
         storage, bus = _fake_backends()
+        self._storage = storage
         self._client = self.enterContext(
             TestClient(
                 create_app(
@@ -334,6 +373,45 @@ class WorkflowRunRouterTest(IsolatedAsyncioTestCase):
             headers={"X-User-ID": "bob"},
         ).json()
         self.assertEqual(other["total"], 0)
+
+    async def test_list_runs_status_filter(self) -> None:
+        """``?status=`` narrows the listing; unknown values answer 422."""
+        seeded = {}
+        for run_status in (RunStatus.RUNNING, RunStatus.SUCCEEDED):
+            seeded[run_status] = await self._storage.upsert_workflow_run(
+                "alice",
+                _seeded_run(
+                    "alice",
+                    self._workflow_id,
+                    self._agent_id,
+                    run_status,
+                ),
+            )
+
+        running = self._client.get(
+            "/workflow/runs",
+            params={"status": "RUNNING"},
+            headers=HEADERS,
+        )
+        self.assertEqual(running.status_code, 200)
+        body = running.json()
+        self.assertEqual(body["total"], 1)
+        self.assertEqual(
+            body["runs"][0]["id"],
+            seeded[RunStatus.RUNNING].id,
+        )
+
+        bogus = self._client.get(
+            "/workflow/runs",
+            params={"status": "BOGUS"},
+            headers=HEADERS,
+        )
+        self.assertEqual(bogus.status_code, 422)
+        detail = bogus.json()["detail"]
+        self.assertIn("BOGUS", detail)
+        # The 422 teaches the allowed vocabulary.
+        self.assertIn("RUNNING", detail)
+        self.assertIn("WAITING_HUMAN", detail)
 
     def test_verdict_edge_cases(self) -> None:
         """Wrong node, unknown node, bad verdict and terminal runs."""

@@ -304,6 +304,7 @@ class WorkflowService:
         self,
         user_id: str,
         workflow_id: str | None = None,
+        status: RunStatus | None = None,
     ) -> list[WorkflowRunRecord]:
         """The user's runs, newest first.
 
@@ -311,11 +312,17 @@ class WorkflowService:
             user_id (`str`): The owner's user id.
             workflow_id (`str | None`): Only this workflow's runs
                 when given.
+            status (`RunStatus | None`): Only runs in this status
+                when given.
 
         Returns:
             `list[WorkflowRunRecord]`: The records, newest first.
         """
-        return await self._storage.list_workflow_runs(user_id, workflow_id)
+        return await self._storage.list_workflow_runs(
+            user_id,
+            workflow_id,
+            status,
+        )
 
     async def _resolve_node_models(
         self,
