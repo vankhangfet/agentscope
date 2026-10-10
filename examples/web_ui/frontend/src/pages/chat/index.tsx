@@ -3,6 +3,7 @@ import {
 	BotMessageSquare,
 	Cable,
 	CalendarClock,
+	ClipboardList,
 	Ellipsis,
 	type LucideIcon,
 	MessageSquareDashed,
@@ -11,6 +12,7 @@ import {
 	Settings2,
 	Trash2,
 	Users,
+	Workflow,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -83,6 +85,8 @@ const SOURCE_ICON: Record<SessionSourceKind, LucideIcon> = {
 	schedule: CalendarClock,
 	channel: Cable,
 	team: Users,
+	sop: ClipboardList,
+	workflow: Workflow,
 };
 
 /** localStorage keys holding the last (agent, session) the user viewed. */

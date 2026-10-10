@@ -143,7 +143,9 @@ export type SessionOrigin =
 			chat_id: string;
 			chat_name: string | null;
 	  }
-	| { type: 'team' };
+	| { type: 'team' }
+	| { type: 'sop'; sop_run_id: string; session_key: string }
+	| { type: 'workflow'; workflow_run_id: string; node_id: string };
 
 /** The tag of a {@link SessionOrigin}. */
 export type SessionSourceKind = SessionOrigin['type'];
