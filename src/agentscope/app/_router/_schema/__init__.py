@@ -68,6 +68,8 @@ from ._agent import (
 from ._credential import (
     CreateCredentialRequest,
     CreateCredentialResponse,
+    TestCredentialRequest,
+    TestCredentialResult,
     UpdateCredentialRequest,
     ListCredentialsResponse,
     ListCredentialSchemasResponse,
@@ -169,6 +171,8 @@ __all__ = [
     # Credential
     "CreateCredentialRequest",
     "CreateCredentialResponse",
+    "TestCredentialRequest",
+    "TestCredentialResult",
     "UpdateCredentialRequest",
     "ListCredentialsResponse",
     "ListCredentialSchemasResponse",

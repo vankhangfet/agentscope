@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 """Request / response schemas for the credential router."""
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 from ..._service import CredentialView
@@ -40,3 +42,22 @@ class ListCredentialSchemasResponse(BaseModel):
     schemas: list[dict] = Field(
         description="JSON schemas for all registered credential types.",
     )
+
+
+class TestCredentialRequest(BaseModel):
+    """Request body for testing a credential with one model call."""
+
+    model: str = Field(description="The model name to call once.")
+
+    parameters: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Model parameters for the test call.",
+    )
+
+
+class TestCredentialResult(BaseModel):
+    """Outcome of one credential test call."""
+
+    ok: bool = Field(description="Whether the call succeeded.")
+
+    detail: str = Field(description="What happened, user-facing.")

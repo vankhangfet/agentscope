@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
 """Credential router — CRUD endpoints for API key credentials."""
+import asyncio
+from typing import AsyncGenerator
+
 from fastapi import APIRouter, Depends, status
 
 from ..access import ResourceKind
@@ -13,17 +16,37 @@ from ._schema import (
     CreateCredentialResponse,
     ListCredentialsResponse,
     ListCredentialSchemasResponse,
+    TestCredentialRequest,
+    TestCredentialResult,
     UpdateCredentialRequest,
 )
-from .._service import CredentialView, ResourceAccessService
-from ..storage import StorageBase
+from .._service import CredentialView, ResourceAccessService, get_model
+from ..storage import ChatModelConfig, StorageBase
 from ...credential import CredentialFactory
+from ...message import UserMsg
+from ...model import ChatModelBase
 
 credential_router = APIRouter(
     prefix="/credential",
     tags=["credential"],
     responses={404: {"description": "Not found"}},
 )
+
+_TEST_CALL_TIMEOUT_SECONDS = 15.0
+"""How long the single credential-test model call may run."""
+
+
+async def _call_model_once(model: ChatModelBase) -> None:
+    """Make one minimal model call, draining streamed replies.
+
+    ``ChatModelBase.__call__`` returns either the full response or,
+    for streaming models, an async generator whose final chunk carries
+    the complete content — both shapes mean "the model replied".
+    """
+    result = await model([UserMsg(name="user", content="Reply with OK.")])
+    if isinstance(result, AsyncGenerator):
+        async for _chunk in result:
+            pass
 
 
 @credential_router.get(
@@ -193,3 +216,77 @@ async def delete_credential(
         credential_id,
     )
     await storage.delete_credential(owner_id, credential_id)
+
+
+@credential_router.post(
+    "/{credential_id}/test",
+    response_model=TestCredentialResult,
+    summary="Test a credential with one minimal model call",
+)
+async def test_credential(
+    credential_id: str,
+    body: TestCredentialRequest,
+    user_id: str = Depends(get_current_user_id),
+    access: ResourceAccessService = Depends(get_resource_access_service),
+) -> TestCredentialResult:
+    """Build a model from a stored credential and call it once.
+
+    Provider, authentication and network failures are data, not server
+    errors: they come back as ``ok=false`` with the error text, so the
+    endpoint never answers 5xx for a broken credential.
+
+    Args:
+        credential_id (`str`): The credential to exercise.
+        body (`TestCredentialRequest`): Model name and parameters for
+            the single test call.
+        user_id (`str`): Injected authenticated user ID.
+        access (`ResourceAccessService`): Injected access service —
+            resolves the credential with owner-or-shared semantics, so
+            a read-only shared credential is testable too.
+
+    Returns:
+        `TestCredentialResult`: Whether the call succeeded and what
+        happened.
+
+    Raises:
+        `HTTPException`: 404 if the credential is not visible to the
+            caller.
+    """
+    record = await access.resolve_credential(user_id, credential_id)
+
+    config = ChatModelConfig(
+        type=record.data["type"],
+        credential_id=credential_id,
+        model=body.model,
+        parameters=body.parameters,
+    )
+
+    try:
+        model = await get_model(user_id, config, access)
+        # ``ChatModelBase.__call__`` answers a cancellation with an
+        # INTERRUPTED reply instead of raising, which swallows the
+        # cancellation ``asyncio.wait_for`` needs to see before it can
+        # report ``TimeoutError``. Race the call as its own task and
+        # cancel the loser explicitly instead.
+        call = asyncio.create_task(_call_model_once(model))
+        done, pending = await asyncio.wait(
+            {call},
+            timeout=_TEST_CALL_TIMEOUT_SECONDS,
+        )
+        if pending:
+            call.cancel()
+            # ``asyncio.wait`` reaps without re-raising, so the cancelled
+            # task settles no matter how its ``__call__`` handled the
+            # cancellation.
+            await asyncio.wait({call})
+            return TestCredentialResult(
+                ok=False,
+                detail=(
+                    "Model call timed out after "
+                    f"{_TEST_CALL_TIMEOUT_SECONDS:g}s."
+                ),
+            )
+        await call
+    except Exception as exc:  # pylint: disable=broad-except
+        return TestCredentialResult(ok=False, detail=str(exc))
+    return TestCredentialResult(ok=True, detail="Model replied successfully.")
