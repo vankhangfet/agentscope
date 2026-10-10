@@ -30,6 +30,10 @@ Task series, …) in two ways:
 Which subset is attached is decided by the caller-resolved team role
 that :func:`get_toolkit` receives; there is no separate "team tool
 factory" helper.
+
+``WorkflowRun`` does not follow the team rules: it is a single tool
+bound to the app's workflow service + engine, attached by the chat
+service once the lifespan has wired those onto it.
 """
 from ._agent_create import AgentCreate, DEFAULT_SUB_AGENT_TEMPLATE
 from ._agent_invite import AgentInvite
@@ -37,6 +41,7 @@ from ._team_create import TeamCreate
 from ._team_delete import TeamDelete
 from ._sop_submit import SubmitHandover, SubmitVerdict
 from ._team_say import TeamSay
+from ._workflow_run import WorkflowRun
 
 __all__ = [
     "AgentCreate",
@@ -47,4 +52,5 @@ __all__ = [
     "TeamCreate",
     "TeamDelete",
     "TeamSay",
+    "WorkflowRun",
 ]

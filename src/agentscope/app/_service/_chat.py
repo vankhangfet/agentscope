@@ -41,6 +41,7 @@ from ..storage import (
 )
 from ..storage._utils import _resolve_team_leader
 from .._manager import BackgroundTaskManager, SchedulerManager
+from .._tool import WorkflowRun
 from ..workspace_manager import WorkspaceManagerBase
 from ..middleware import (
     InboxMiddleware,
@@ -64,6 +65,8 @@ from ._tts_model import get_tts_model
 from ._toolkit import get_toolkit
 from ._session_projection import SessionProjection
 from ._sop import SOPService
+from ._workflow import WorkflowService
+from ._workflow_engine import WorkflowEngine
 from ._projectors import SubagentHitlProjector
 
 from ..._logging import logger
@@ -261,6 +264,11 @@ class ChatService:
         self.sop_service: SOPService | None = None
         """Carries a procedure on after a turn resumes one of its steps.
         Set by the lifespan, since a SOP service is built on this one."""
+        self.workflow_service: WorkflowService | None = None
+        self.workflow_engine: WorkflowEngine | None = None
+        """Run workflows from a chat turn. Set by the lifespan, since
+        the engine is built on this service (its chat runner is
+        ``ChatService.run``), so neither exists at construction."""
         self._sub_agent_templates = custom_subagent_templates
         self._agent_cls = custom_agent_cls or Agent
         self._projection = SessionProjection(message_bus)
@@ -1086,8 +1094,24 @@ class ChatService:
 
                 # -------------------------------------------------------------
                 # 3. Toolkit (workspace tools + planning + ToolStop +
-                # schedule + team + extras + skills + mcps).
+                # schedule + workflow + team + extras + skills + mcps).
                 # -------------------------------------------------------------
+                # Only when the lifespan attached the workflow wiring —
+                # older wiring and tests that never attach it get no
+                # run-workflow tool.
+                workflow_tools = None
+                if (
+                    self.workflow_service is not None
+                    and self.workflow_engine is not None
+                ):
+                    workflow_tools = [
+                        WorkflowRun(
+                            user_id=user_id,
+                            storage=self._storage,
+                            workflow_service=self.workflow_service,
+                            workflow_engine=self.workflow_engine,
+                        ),
+                    ]
                 toolkit = await get_toolkit(
                     storage=self._storage,
                     workspace=workspace,
@@ -1105,6 +1129,7 @@ class ChatService:
                     team_role=team_ctx.role if team_ctx else None,
                     channel_tools=channel_tools,
                     sop_dispatch=sop_dispatch,
+                    workflow_tools=workflow_tools,
                 )
 
                 # -------------------------------------------------------------

@@ -3,8 +3,9 @@
 
 The single entry point :func:`get_toolkit` gathers every tool source —
 workspace builtins, MCPs, skills, planning tools (Task*), background-task
-control (ToolStop), schedule control (Schedule*), team participation
-tools, and caller-supplied extras — into one :class:`Toolkit`.
+control (ToolStop), schedule control (Schedule*), workflow control
+(WorkflowRun), team participation tools, and caller-supplied extras — into
+one :class:`Toolkit`.
 """
 from typing import Any, Literal
 
@@ -55,6 +56,7 @@ async def get_toolkit(
     team_role: Literal["leader", "worker"] | None = None,
     channel_tools: list[ToolBase] | None = None,
     sop_dispatch: str | None = None,
+    workflow_tools: list[ToolBase] | None = None,
 ) -> Toolkit:
     """Assemble the complete :class:`Toolkit` for one chat turn.
 
@@ -70,10 +72,13 @@ async def get_toolkit(
        :meth:`SchedulerManager.list_tools`). Only attached when the
        session has a model configured (Schedule tools need a model to
        fire new chats with).
-    5. Team tools — by caller-resolved ``team_role``: a worker gets only
+    5. Workflow control (:class:`WorkflowRun`, caller-resolved
+       ``workflow_tools``) — only attached when the caller wired the
+       workflow subsystem.
+    6. Team tools — by caller-resolved ``team_role``: a worker gets only
        ``TeamSay``; anyone else gets the full leader-side toolset.
-    6. Caller-supplied extras (``extra_factory``)
-    7. Channel platform tools — the caller resolves them (once, shared
+    7. Caller-supplied extras (``extra_factory``)
+    8. Channel platform tools — the caller resolves them (once, shared
        with the system-prompt attachment) and passes ``channel_tools``.
 
     Plus the workspace's skills and MCPs, which become the toolkit's
@@ -129,6 +134,10 @@ optional):
         channel_tools (`list[ToolBase] | None`, optional):
             Platform tools of the originating channel, resolved once
             by the caller. ``None`` / empty when channel-less.
+        workflow_tools (`list[ToolBase] | None`, optional):
+            Workflow-run tools, resolved once by the caller (the chat
+            service builds ``WorkflowRun`` once the workflow wiring
+            is attached to it). ``None`` / empty adds nothing.
 
     Returns:
         `Toolkit`: Fully populated toolkit (tools + skills + MCPs).
@@ -173,6 +182,12 @@ time or interval"
                 ),
             ),
         )
+
+    # Workflow control, caller-resolved like channel tools: the chat
+    # service builds the run tool once the workflow service + engine
+    # are attached to it; other callers pass nothing.
+    if workflow_tools:
+        tools += workflow_tools
 
     # Team tools by caller-resolved role; non-team sessions get the
     # leader set (each leader tool rechecks its precondition at call time).

@@ -236,6 +236,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             judge_agent_factory=await make_judge_agent_factory(storage),
         )
         app.state.workflow_engine = workflow_engine
+        # The run-workflow chat tool needs both, but the engine is
+        # built on ChatService (its chat runner), so — like the SOP
+        # service — they are attached here rather than passed to the
+        # ChatService constructor.
+        chat_service.workflow_service = workflow_service
+        chat_service.workflow_engine = workflow_engine
         await workflow_engine.recover_stale_runs()
 
         # Scheduled workflow runs. The scheduler was constructed far
