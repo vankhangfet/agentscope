@@ -137,4 +137,6 @@ Behaviour: `start_run(trigger="chat_tool", chat_model_config=None — the RUN re
 
 ## Follow-up plans
 
+**Backlog from Task 2's review:** (a) agent-delete cascades (`_service/_session.py` + both storages) should exclude `workflow_id`-set schedule records — a client that used a REAL agent id as the workflow-target placeholder gets the schedule silently deleted when that agent is deleted; (b) consider starting the scheduler AFTER the workflow starter is attached (move `enter_async_context(scheduler)` below the setter call — LIFO teardown stops it earlier on shutdown, the safe direction) to close the startup missed-run window.
+
 - **Plan 4 — Frontend:** React Flow builder, run view (SSE from `workflow_run:{run_id}`), approvals inbox, agent template form fields, SchemaForm debt, SessionOrigin TS types, schedule-UI for workflow targets, `run_workflow` tool surfaced in chat UI, credential Test button.
