@@ -275,6 +275,48 @@ class WorkflowService:
         )
         return await self._storage.upsert_workflow_run(user_id, run)
 
+    async def get_run(
+        self,
+        user_id: str,
+        run_id: str,
+    ) -> WorkflowRunRecord:
+        """Fetch one run or answer 404.
+
+        Args:
+            user_id (`str`): The owner's user id.
+            run_id (`str`): The run id.
+
+        Returns:
+            `WorkflowRunRecord`: The record.
+
+        Raises:
+            `HTTPException`: 404 when not found.
+        """
+        record = await self._storage.get_workflow_run(user_id, run_id)
+        if record is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Run {run_id!r} not found.",
+            )
+        return record
+
+    async def list_runs(
+        self,
+        user_id: str,
+        workflow_id: str | None = None,
+    ) -> list[WorkflowRunRecord]:
+        """The user's runs, newest first.
+
+        Args:
+            user_id (`str`): The owner's user id.
+            workflow_id (`str | None`): Only this workflow's runs
+                when given.
+
+        Returns:
+            `list[WorkflowRunRecord]`: The records, newest first.
+        """
+        return await self._storage.list_workflow_runs(user_id, workflow_id)
+
     async def _resolve_node_models(
         self,
         user_id: str,

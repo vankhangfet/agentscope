@@ -106,9 +106,14 @@ from ._session import (
     TeamMemberView,
 )
 from ._workflow import (
+    ApproveRequest,
     CreateWorkflowRequest,
     CreateWorkflowResponse,
+    ListRunsResponse,
     ListWorkflowsResponse,
+    RunDetailResponse,
+    StartRunRequest,
+    StartRunResponse,
     UpdateWorkflowRequest,
     WorkflowDetailResponse,
 )
@@ -218,9 +223,14 @@ __all__ = [
     "TeamDetailResponse",
     "TeamMemberView",
     # Workflow
+    "ApproveRequest",
     "CreateWorkflowRequest",
     "CreateWorkflowResponse",
+    "ListRunsResponse",
     "ListWorkflowsResponse",
+    "RunDetailResponse",
+    "StartRunRequest",
+    "StartRunResponse",
     "UpdateWorkflowRequest",
     "WorkflowDetailResponse",
 ]
