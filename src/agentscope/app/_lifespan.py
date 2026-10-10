@@ -30,6 +30,7 @@ from ._service import (
     WorkflowService,
     make_judge_agent_factory,
 )
+from .storage import ScheduleRecord
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -221,7 +222,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             download_secret=app.state.download_secret,
         )
 
-        app.state.workflow_service = WorkflowService(storage=storage)
+        workflow_service = WorkflowService(storage=storage)
+        app.state.workflow_service = workflow_service
 
         # The engine drives runs the service creates: it dispatches
         # ready nodes, persists every transition and parks on
@@ -235,6 +237,27 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         app.state.workflow_engine = workflow_engine
         await workflow_engine.recover_stale_runs()
+
+        # Scheduled workflow runs. The scheduler was constructed far
+        # above — ChatService takes it, and the engine takes
+        # ChatService — so the starter is attached here rather than
+        # passed to the constructor; triggers read it at fire time.
+        # ``start_run`` failures (unknown workflow, deleted agent or
+        # credential) propagate into the trigger's except, are logged
+        # there, and leave the APScheduler job alive.
+        async def _start_scheduled_workflow(
+            user_id: str,
+            record: ScheduleRecord,
+        ) -> None:
+            run = await workflow_service.start_run(
+                user_id,
+                record.data.workflow_id,
+                record.data.run_input,
+                trigger="schedule",
+            )
+            await workflow_engine.dispatch(user_id, run.id)
+
+        scheduler.set_workflow_starter(_start_scheduled_workflow)
 
         # ---------------- Knowledge-base wiring ----------------
         knowledge_base_service = None

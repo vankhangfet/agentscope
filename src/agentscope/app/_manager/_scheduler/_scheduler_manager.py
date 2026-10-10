@@ -2,7 +2,7 @@
 """The cron scheduler manager class."""
 import asyncio
 import json
-from collections.abc import Callable, Coroutine
+from collections.abc import Awaitable, Callable, Coroutine
 from datetime import datetime
 from zoneinfo import ZoneInfoNotFoundError
 
@@ -29,6 +29,14 @@ from ...storage import (
 if TYPE_CHECKING:
     from apscheduler.triggers.cron import CronTrigger
 
+WorkflowStarter = Callable[[str, ScheduleRecord], Awaitable[None]]
+"""Starts a workflow run for one schedule fire: ``(user_id, record)``.
+
+Injected as a closure (by the lifespan, or a stub in tests) so the
+manager stays free of workflow-engine imports and of their
+construction-order constraints.
+"""
+
 
 class SchedulerManager:
     """The cron scheduler manager, responsible for managing scheduled-task
@@ -41,6 +49,10 @@ class SchedulerManager:
     :class:`WakeupDispatcher` (running on any process) picks up the work.
     This keeps the scheduler decoupled from ``ChatService`` and makes the
     fire path consistent with team / background-tool result delivery.
+    A schedule whose data targets a workflow (``workflow_id`` set)
+    takes a different branch entirely: the fire is handed to the
+    injected :data:`WorkflowStarter` closure, which starts and
+    dispatches a workflow run, and the agent-session path is skipped.
 
     The timers themselves are held by **one** node — APScheduler's
     jobstore is in-memory, so every node holding them fires every cron
@@ -62,6 +74,7 @@ class SchedulerManager:
         message_bus: MessageBus,
         workspace_manager: WorkspaceManagerBase,
         enabled: bool = True,
+        workflow_starter: WorkflowStarter | None = None,
     ) -> None:
         """Initialize the scheduler manager.
 
@@ -80,6 +93,13 @@ class SchedulerManager:
                 Whether this node owns the timers. Exactly one node in a
                 deployment should enable them; the rest still create,
                 edit and delete schedules — they just do not fire them.
+            workflow_starter (`WorkflowStarter | None`, defaults to
+                ``None``):
+                Called on each fire of a schedule that targets a
+                workflow. ``None`` until the lifespan attaches one (the
+                workflow engine is built after this manager); a fire of
+                a workflow-target schedule without one is logged and
+                skipped.
         """
         from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -87,6 +107,7 @@ class SchedulerManager:
         self._message_bus = message_bus
         self._workspace_manager = workspace_manager
         self._enabled = enabled
+        self._workflow_starter = workflow_starter
         self._scheduler = AsyncIOScheduler()
         # ``updated_at`` of each registered job, so a reconcile can tell
         # an edited schedule from an unchanged one.
@@ -144,6 +165,23 @@ class SchedulerManager:
         self._scheduler.shutdown()
         logger.info("SchedulerManager APScheduler shut down")
 
+    def set_workflow_starter(self, starter: WorkflowStarter) -> None:
+        """Attach (or replace) the workflow starter after construction.
+
+        The lifespan needs this because of a construction-order cycle:
+        ``ChatService`` takes this manager, and the workflow engine
+        takes ``ChatService``, so the engine only exists long after the
+        manager does. Triggers read the starter when they fire, not
+        when they are built, so a late attachment reaches even jobs
+        that were already registered.
+
+        Args:
+            starter (`WorkflowStarter`):
+                The coroutine function to call on each fire of a
+                workflow-target schedule.
+        """
+        self._workflow_starter = starter
+
     # ------------------------------------------------------------------
     # Trigger construction
     # ------------------------------------------------------------------
@@ -158,11 +196,14 @@ class SchedulerManager:
         The returned coroutine:
 
         1. Skips execution when the schedule is disabled.
-        2. Resolves or creates the target session (stateful reuses a fixed
+        2. Starts a workflow run instead when the record targets a
+           workflow (``workflow_id`` set), handing the fire to the
+           injected starter; nothing agent-related runs.
+        3. Resolves or creates the target session (stateful reuses a fixed
            session; non-stateful creates a fresh one on every fire).
-        3. Calls :class:`~agentscope.app._service._chat.ChatService` and
+        4. Calls :class:`~agentscope.app._service._chat.ChatService` and
            drains the response stream (fire-and-forget).
-        4. Catches and logs all exceptions to prevent APScheduler from
+        5. Catches and logs all exceptions to prevent APScheduler from
            removing the job on failure.
 
         Args:
@@ -195,6 +236,22 @@ class SchedulerManager:
                 return
 
             try:
+                if record.data.workflow_id is not None:
+                    if self._workflow_starter is None:
+                        logger.warning(
+                            "[Schedule:%s(%s)] Targets workflow %s but "
+                            "no workflow starter is wired; skipping",
+                            record.id,
+                            record.data.name,
+                            record.data.workflow_id,
+                        )
+                        return
+                    await self._workflow_starter(
+                        record.user_id,
+                        record,
+                    )
+                    return
+
                 if record.data.stateful:
                     stateful_session_id = f"{record.id}_stateful"
                     logger.info(

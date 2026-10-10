@@ -2,6 +2,7 @@
 """The schedule storage model."""
 from datetime import datetime
 from enum import Enum
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -102,6 +103,20 @@ class ScheduleData(BaseModel):
         default="",
         description="The source session identifier, used for resource "
         "retrieval.",
+    )
+
+    workflow_id: str | None = Field(
+        default=None,
+        description=(
+            "Target workflow to run on each fire; when set, the "
+            "schedule starts a workflow run instead of an agent turn "
+            "(the agent/model fields are ignored)."
+        ),
+    )
+
+    run_input: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Input handed to each workflow run this schedule starts.",
     )
 
 

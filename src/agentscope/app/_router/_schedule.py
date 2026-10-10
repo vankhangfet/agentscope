@@ -75,7 +75,9 @@ async def create_schedule(
 
     The referenced agent may be either the viewer's own or one shared
     to them through :class:`ResourceAccessPolicyBase`; the schedule
-    record itself is always owned by the caller.
+    record itself is always owned by the caller. A schedule that
+    targets a workflow ignores the agent / credential fields — only
+    the workflow must exist.
 
     Args:
         body (`CreateScheduleRequest`): Schedule configuration.
@@ -89,21 +91,33 @@ async def create_schedule(
             The ID of the newly created schedule.
 
     Raises:
-        `HTTPException`: 404 if the specified agent or the credential
-            referenced by ``chat_model_config`` is not visible to the
-            caller; 422 if the cron expression, timezone or activation
-            window is invalid.
+        `HTTPException`: 404 if the specified agent, the credential
+            referenced by ``chat_model_config``, or — for a
+            workflow-target schedule — the workflow is not visible to
+            the caller; 422 if the cron expression, timezone or
+            activation window is invalid.
     """
-    # Visibility checks — raise 404 when neither owned nor shared. The
-    # schedule fires under the owner's user_id, so re-validating the
-    # credential here surfaces the error at creation time rather than
-    # silently at the first (possibly much later) scheduled run.
-    await access.resolve_agent(user_id, body.agent_id)
-    await access.get_resource(
-        user_id,
-        ResourceKind.CREDENTIAL,
-        body.chat_model_config.credential_id,
-    )
+    if body.workflow_id is not None:
+        # A workflow target ignores the agent / model fields, so their
+        # visibility checks are skipped; the workflow it fires must
+        # exist under the caller's id.
+        if await storage.get_workflow(user_id, body.workflow_id) is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Workflow '{body.workflow_id}' not found.",
+            )
+    else:
+        # Visibility checks — raise 404 when neither owned nor shared.
+        # The schedule fires under the owner's user_id, so
+        # re-validating the credential here surfaces the error at
+        # creation time rather than silently at the first (possibly
+        # much later) scheduled run.
+        await access.resolve_agent(user_id, body.agent_id)
+        await access.get_resource(
+            user_id,
+            ResourceKind.CREDENTIAL,
+            body.chat_model_config.credential_id,
+        )
 
     record = ScheduleRecord(
         user_id=user_id,
@@ -118,6 +132,8 @@ async def create_schedule(
             permission_mode=body.permission_mode,
             chat_model_config=body.chat_model_config,
             source=ScheduleSource.USER,
+            workflow_id=body.workflow_id or None,
+            run_input=body.run_input,
             # Aware on purpose: the trigger reads a naive start time in
             # the schedule's own timezone, not the server's.
             started_at=datetime.now().astimezone(),
@@ -169,9 +185,10 @@ async def update_schedule(
             The updated schedule record.
 
     Raises:
-        `HTTPException`: 404 if the schedule does not exist; 422 if the
-            update leaves an invalid cron expression, timezone or
-            activation window.
+        `HTTPException`: 404 if the schedule does not exist, or the
+            update leaves the schedule targeting an unknown workflow;
+            422 if the update leaves an invalid cron expression,
+            timezone or activation window.
     """
     existing = await storage.get_schedule(user_id, schedule_id)
     if existing is None:
@@ -185,6 +202,15 @@ async def update_schedule(
     updated_record = existing.model_copy(
         update={"data": updated_data, "updated_at": datetime.now()},
     )
+
+    if updated_data.workflow_id is not None and (
+        await storage.get_workflow(user_id, updated_data.workflow_id)
+        is None
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Workflow '{updated_data.workflow_id}' not found.",
+        )
 
     try:
         scheduler.validate_schedule(updated_record)

@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 """Request / response schemas for the schedule router."""
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 from ...storage import (
@@ -51,6 +53,19 @@ class CreateScheduleRequest(BaseModel):
         "scheduled execution.",
     )
 
+    workflow_id: str | None = Field(
+        default=None,
+        description="Target workflow to run on each fire instead of an "
+        "agent turn; when set, the workflow must exist and the "
+        "agent/model fields are ignored.",
+    )
+
+    run_input: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Input handed to each workflow run the schedule "
+        "starts; ignored without ``workflow_id``.",
+    )
+
 
 class CreateScheduleResponse(BaseModel):
     """Response body after creating a schedule."""
@@ -99,6 +114,19 @@ class UpdateScheduleRequest(BaseModel):
     permission_mode: PermissionMode | None = Field(
         default=None,
         description="New permission mode.",
+    )
+
+    workflow_id: str | None = Field(
+        default=None,
+        description="Retarget the schedule to a workflow; omit to keep "
+        "the current target. There is no way to clear it back to an "
+        "agent turn — delete and recreate the schedule instead.",
+    )
+
+    run_input: dict[str, Any] | None = Field(
+        default=None,
+        description="Replacement input for workflow runs; omit to keep "
+        "the current value.",
     )
 
 
