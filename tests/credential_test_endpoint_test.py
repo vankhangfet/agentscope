@@ -20,6 +20,8 @@ from pydantic import BaseModel
 
 from agentscope.app import create_app
 from agentscope.app._router import _credential as _credential_router_module
+from agentscope.app._service import ResourceAccessService
+from agentscope.app.access import DenyAllResourceAccessPolicy
 from agentscope.app.message_bus import RedisMessageBus
 from agentscope.app.storage import RedisStorage
 from agentscope.app.workspace_manager import LocalWorkspaceManager
@@ -242,6 +244,57 @@ class CredentialTestEndpointTest(IsolatedAsyncioTestCase):
         self.assertEqual(replied.status_code, 200)
         self.assertFalse(replied.json()["ok"])
         self.assertIn("timed out", replied.json()["detail"])
+
+    async def test_handler_cancellation_settles_the_call(self) -> None:
+        """Cancelling the handler mid-call still settles the child task.
+
+        Drives the endpoint coroutine directly (a real cancellation
+        cannot be pushed through TestClient) with a hanging model, then
+        requires that no task from the exchange survives the handler.
+        """
+        storage, _ = _fake_backends()
+        async with storage:
+            credential_id = await storage.upsert_credential(
+                "alice",
+                CredentialFactory.from_dict(
+                    {"type": "fake_test_endpoint_credential", "name": "f"},
+                ),
+            )
+            access = ResourceAccessService(
+                storage=storage,
+                policy=DenyAllResourceAccessPolicy(),
+            )
+            handler = asyncio.create_task(
+                _credential_router_module.test_credential(
+                    credential_id,
+                    _credential_router_module.TestCredentialRequest(
+                        model="hang-model",
+                    ),
+                    user_id="alice",
+                    access=access,
+                ),
+            )
+            # Gate on the model call having started, so the cancel
+            # lands while it is in flight, not before it exists.
+            for _ in range(500):
+                if _RecordingModel.calls:
+                    break
+                await asyncio.sleep(0.01)
+            self.assertTrue(_RecordingModel.calls)
+
+            handler.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await handler
+
+            # A beat for the cancelled child to settle, then no task
+            # from this exchange may still be running.
+            await asyncio.sleep(0.05)
+            lingering = [
+                task
+                for task in asyncio.all_tasks()
+                if task is not asyncio.current_task() and not task.done()
+            ]
+            self.assertEqual(lingering, [])
 
     def test_streaming_reply_drains_to_success(self) -> None:
         """A streamed reply is drained and still counts as a success."""

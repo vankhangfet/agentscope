@@ -269,24 +269,37 @@ async def test_credential(
         # report ``TimeoutError``. Race the call as its own task and
         # cancel the loser explicitly instead.
         call = asyncio.create_task(_call_model_once(model))
-        done, pending = await asyncio.wait(
-            {call},
-            timeout=_TEST_CALL_TIMEOUT_SECONDS,
-        )
-        if pending:
-            call.cancel()
-            # ``asyncio.wait`` reaps without re-raising, so the cancelled
-            # task settles no matter how its ``__call__`` handled the
+        try:
+            _, pending = await asyncio.wait(
+                {call},
+                timeout=_TEST_CALL_TIMEOUT_SECONDS,
+            )
+            if pending:
+                return TestCredentialResult(
+                    ok=False,
+                    detail=(
+                        "Model call timed out after "
+                        f"{_TEST_CALL_TIMEOUT_SECONDS:g}s."
+                    ),
+                )
+            await call
+        finally:
+            # Contain the child task on every exit path — including a
+            # cancellation of this handler itself, which would
+            # otherwise leak the model call to natural completion (a
+            # hung provider can hold it for the SDK's own timeout).
+            if not call.done():
+                call.cancel()
+            # ``asyncio.wait`` reaps without re-raising, so the task
+            # settles no matter how its ``__call__`` handled the
             # cancellation.
             await asyncio.wait({call})
-            return TestCredentialResult(
-                ok=False,
-                detail=(
-                    "Model call timed out after "
-                    f"{_TEST_CALL_TIMEOUT_SECONDS:g}s."
-                ),
-            )
-        await call
+            # Retrieve (and discard) a stray exception so a task that
+            # errored right around the deadline doesn't trip "Task
+            # exception was never retrieved" at GC time. Guarded: a
+            # cancelled task raises from ``exception()``.
+            if not call.cancelled():
+                call.exception()
     except Exception as exc:  # pylint: disable=broad-except
         return TestCredentialResult(ok=False, detail=str(exc))
     return TestCredentialResult(ok=True, detail="Model replied successfully.")
