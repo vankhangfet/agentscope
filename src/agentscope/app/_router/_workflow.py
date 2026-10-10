@@ -86,6 +86,8 @@ async def list_workflows(
     return ListWorkflowsResponse(workflows=workflows, total=len(workflows))
 
 
+# Run routes precede ``/{workflow_id}`` so "runs" is never captured
+# as a workflow id by FastAPI's order-dependent path matching.
 @workflow_router.post(
     "/{workflow_id}/run",
     response_model=StartRunResponse,
