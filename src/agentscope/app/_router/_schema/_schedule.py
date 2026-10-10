@@ -118,9 +118,10 @@ class UpdateScheduleRequest(BaseModel):
 
     workflow_id: str | None = Field(
         default=None,
-        description="Retarget the schedule to a workflow; omit to keep "
-        "the current target. There is no way to clear it back to an "
-        "agent turn — delete and recreate the schedule instead.",
+        description="Retarget the schedule to a workflow; omit (or send "
+        "an empty string) to keep the current target. There is no way "
+        "to clear it back to an agent turn — delete and recreate the "
+        "schedule instead.",
     )
 
     run_input: dict[str, Any] | None = Field(

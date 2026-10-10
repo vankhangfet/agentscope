@@ -424,6 +424,50 @@ class ScheduleRouterWorkflowTest(TestCase):
             self._workflow_id,
         )
 
+    def test_patch_after_workflow_deletion_still_disables(self) -> None:
+        """Updates re-validate only actual retargets: once the workflow
+        is gone, the enabled flag remains the schedule's escape hatch."""
+        schedule_id = self._create()
+
+        deleted = self._client.delete(
+            f"/workflow/{self._workflow_id}",
+            headers=HEADERS,
+        )
+        self.assertEqual(deleted.status_code, 204)
+
+        patched = self._client.patch(
+            f"/schedule/{schedule_id}",
+            json={"enabled": False},
+            headers=HEADERS,
+        )
+
+        self.assertEqual(patched.status_code, 200)
+        self.assertFalse(patched.json()["data"]["enabled"])
+        self.assertFalse(self._stored()[0]["data"]["enabled"])
+
+    def test_update_with_empty_workflow_id_is_treated_as_omitted(
+        self,
+    ) -> None:
+        """An empty ``workflow_id`` neither retargets nor 404s — it
+        keeps the current target, mirroring create's normalization."""
+        schedule_id = self._create()
+
+        patched = self._client.patch(
+            f"/schedule/{schedule_id}",
+            json={"workflow_id": ""},
+            headers=HEADERS,
+        )
+
+        self.assertEqual(patched.status_code, 200)
+        self.assertEqual(
+            patched.json()["data"]["workflow_id"],
+            self._workflow_id,
+        )
+        self.assertEqual(
+            self._stored()[0]["data"]["workflow_id"],
+            self._workflow_id,
+        )
+
 
 # ------------------------------------------------------------------ e2e
 

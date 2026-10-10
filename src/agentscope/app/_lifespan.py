@@ -249,6 +249,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             user_id: str,
             record: ScheduleRecord,
         ) -> None:
+            # The trigger only calls this starter for workflow-target
+            # schedules, so the assert holds by construction; it keeps
+            # type checkers quiet about the Optional field.
+            assert record.data.workflow_id is not None
             run = await workflow_service.start_run(
                 user_id,
                 record.data.workflow_id,

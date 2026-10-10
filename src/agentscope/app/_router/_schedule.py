@@ -186,7 +186,9 @@ async def update_schedule(
 
     Raises:
         `HTTPException`: 404 if the schedule does not exist, or the
-            update leaves the schedule targeting an unknown workflow;
+            update retargets the schedule to an unknown workflow (a
+            patch that leaves ``workflow_id`` alone skips that check,
+            so a schedule whose workflow was deleted stays patchable);
             422 if the update leaves an invalid cron expression,
             timezone or activation window.
     """
@@ -198,18 +200,27 @@ async def update_schedule(
         )
 
     updates = body.model_dump(exclude_none=True)
+    # An empty workflow_id is treated as omitted, mirroring create's
+    # ``workflow_id or None`` normalization: it neither retargets the
+    # schedule nor trips the existence check below.
+    if "workflow_id" in updates and not updates["workflow_id"]:
+        updates.pop("workflow_id")
     updated_data = existing.data.model_copy(update=updates)
     updated_record = existing.model_copy(
         update={"data": updated_data, "updated_at": datetime.now()},
     )
 
-    if updated_data.workflow_id is not None and (
-        await storage.get_workflow(user_id, updated_data.workflow_id)
+    # Validate only actual retargets: a schedule whose workflow was
+    # deleted in the meantime must stay patchable — its enabled flag
+    # is the escape hatch — so a patch that doesn't touch workflow_id
+    # skips the check entirely.
+    if "workflow_id" in updates and (
+        await storage.get_workflow(user_id, updates["workflow_id"])
         is None
     ):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Workflow '{updated_data.workflow_id}' not found.",
+            detail=f"Workflow '{updates['workflow_id']}' not found.",
         )
 
     try:
