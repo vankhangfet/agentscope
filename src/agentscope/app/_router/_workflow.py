@@ -1,12 +1,19 @@
 # -*- coding: utf-8 -*-
 """Workflow router — CRUD for definitions, lifecycle for runs."""
+import asyncio
+import json
+from typing import AsyncGenerator
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 
 from ..deps import (
     get_current_user_id,
+    get_message_bus,
     get_workflow_engine,
     get_workflow_service,
 )
+from ..message_bus import MessageBus
 from ..storage import RunStatus
 from ._schema import (
     ApproveRequest,
@@ -338,6 +345,161 @@ async def retry_run(
     """
     record = await engine.retry(user_id, run_id)
     return RunDetailResponse(data=record.data)
+
+
+# ----------------------------------------------------------------------
+# Stream: live SSE connection for run events
+# ----------------------------------------------------------------------
+
+_HEARTBEAT_INTERVAL_SECS = 30
+# Interval between SSE heartbeat comment frames (``:\n\n``).
+
+_SUBSCRIBE_TIMEOUT_SECS = 5.0
+# How long the stream waits for the bus subscription to go live.
+
+_RUN_TERMINAL_STATUSES = frozenset(
+    (
+        RunStatus.SUCCEEDED.value,
+        RunStatus.FAILED.value,
+        RunStatus.CANCELLED.value,
+    ),
+)
+# Status values that end a stream: once the run itself reports one of
+# these, no further transition can occur (a retry is a fresh dispatch
+# the client observes through a new connection).
+
+
+@workflow_router.get(
+    "/runs/{run_id}/stream",
+    summary="Subscribe to a run's event stream (SSE)",
+    response_description=(
+        "Server-Sent Events stream of run state and node/run events"
+    ),
+)
+async def stream_run_events(
+    run_id: str,
+    user_id: str = Depends(get_current_user_id),
+    service: WorkflowService = Depends(get_workflow_service),
+    message_bus: MessageBus = Depends(get_message_bus),
+) -> StreamingResponse:
+    """Subscribe to a run's live event stream.
+
+    Returns a ``text/event-stream`` that opens with one ``state``
+    frame — the full run record, in the same shape
+    ``GET /workflow/runs/{run_id}`` returns — then forwards every
+    transition the engine publishes for the run: each bus payload
+    becomes an ``event: node`` or ``event: run`` frame whose data is
+    the payload as-is (``{"type", "run_id", "node_id", "status",
+    "error"}``).
+
+    The stream ends when the run does: a run already terminal at
+    connect emits its state and closes, and the first ``run`` frame
+    carrying a terminal status closes an open one. Otherwise the
+    connection stays open until the client disconnects. A heartbeat
+    comment frame (``:\\n\\n``) is sent every 30 seconds to keep the
+    connection alive through reverse proxies.
+
+    Args:
+        run_id (`str`):
+            The run to subscribe to.
+        user_id (`str`):
+            Injected authenticated user id.
+        service (`WorkflowService`):
+            Injected workflow service; owner-scoped existence check
+            and the state snapshot.
+        message_bus (`MessageBus`):
+            Injected message bus (live event subscription).
+
+    Returns:
+        `StreamingResponse`:
+            SSE stream of ``state`` / ``node`` / ``run`` frames plus
+            periodic heartbeats.
+
+    Raises:
+        `HTTPException`: 404 when the caller owns no such run.
+    """
+    # Owner-scoped existence check: raises the 404 before the stream
+    # opens, so an unknown run answers as a normal error response.
+    await service.get_run(user_id, run_id)
+
+    async def _sse_generator() -> AsyncGenerator[str, None]:
+        channel = f"workflow_run:{run_id}"
+        ready = asyncio.Event()
+        queue: asyncio.Queue[dict | None] = asyncio.Queue()
+
+        async def _feeder() -> None:
+            """Read from the bus subscription and forward to the
+            queue.
+
+            Pushes ``None`` as a sentinel when the subscription ends
+            (which in practice only happens if the bus shuts down).
+            """
+            try:
+                async for payload in message_bus.subscribe(
+                    channel,
+                    on_ready=ready.set,
+                ):
+                    await queue.put(payload)
+            except asyncio.CancelledError:
+                pass
+            finally:
+                await queue.put(None)
+
+        feeder_task = asyncio.create_task(
+            _feeder(),
+            name=f"run-sse-feeder:{run_id}",
+        )
+
+        try:
+            # Subscribe first, then snapshot: a transition persisted in
+            # between is already folded into the snapshot, and its
+            # publish arrives over the subscription in order — applied
+            # after the snapshot it converges to the same state.
+            await asyncio.wait_for(
+                ready.wait(),
+                timeout=_SUBSCRIBE_TIMEOUT_SECS,
+            )
+            record = await service.get_run(user_id, run_id)
+            state = RunDetailResponse(data=record.data).model_dump_json()
+            yield f"event: state\ndata: {state}\n\n"
+            if record.data.status.value in _RUN_TERMINAL_STATUSES:
+                return
+            while True:
+                try:
+                    item = await asyncio.wait_for(
+                        queue.get(),
+                        timeout=_HEARTBEAT_INTERVAL_SECS,
+                    )
+                except asyncio.TimeoutError:
+                    yield ":\n\n"
+                    continue
+                if item is None:
+                    break
+                event = item.get("type")
+                if event is None:
+                    continue
+                data = json.dumps(item, ensure_ascii=False)
+                yield f"event: {event}\ndata: {data}\n\n"
+                if (
+                    event == "run"
+                    and item.get("status") in _RUN_TERMINAL_STATUSES
+                ):
+                    return
+        finally:
+            feeder_task.cancel()
+            try:
+                await feeder_task
+            except asyncio.CancelledError:
+                pass
+
+    return StreamingResponse(
+        _sse_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @workflow_router.get(
