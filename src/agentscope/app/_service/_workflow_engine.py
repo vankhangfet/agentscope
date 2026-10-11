@@ -9,6 +9,13 @@ on it, so a crash always leaves a run :meth:`recover_stale_runs` can
 classify: a node stuck RUNNING was an interrupted attempt, a node
 WAITING_HUMAN is a park to re-derive, and everything else is either
 still walkable or already terminal.
+
+Retries are not selective about failure causes: every
+:class:`NodeFailure` counts against the failing node type's budget.
+The retryable-exception classes of spec §5 never come into play, as
+``ChatService`` folds model errors into error-bearing replies instead
+of raising, so a failed model call reaches the engine as a plain
+:class:`NodeFailure` like any other handler fault.
 """
 import asyncio
 import logging
@@ -73,6 +80,10 @@ class WorkflowEngine:
     recovery sweep.
     """
 
+    _MAX_LOOP_CRASHES = 3
+    """How many consecutive dispatcher-loop crashes one run tolerates
+    before the heartbeat gives up and fails it."""
+
     def __init__(
         self,
         storage: StorageBase,
@@ -102,6 +113,9 @@ class WorkflowEngine:
             judge_agent_factory,
         )
         self._tasks: dict[str, asyncio.Task] = {}
+        self._rescues: set[asyncio.Task] = set()
+        self._crash_counts: dict[str, int] = {}
+        self._closed = False
         self._semaphore = asyncio.Semaphore(max_parallel)
         self._write_lock = asyncio.Lock()
 
@@ -125,20 +139,29 @@ class WorkflowEngine:
             user_id (`str`): The run's owner.
             run_id (`str`): The run to drive.
         """
+        if self._closed:
+            # A closed engine drives nothing; the next process's
+            # recovery sweep picks the run up.
+            return
         live = self._tasks.get(run_id)
         if live is not None and not live.done():
             return
         # create_task schedules without running the loop, so the task
         # is registered — and visible to any concurrent dispatch —
         # before this coroutine can yield.
-        task = asyncio.create_task(self._loop(user_id, run_id))
+        task = asyncio.create_task(self._run_loop(user_id, run_id))
         self._tasks[run_id] = task
         task.add_done_callback(
             lambda done, rid=run_id: self._forget_task(rid, done),
         )
 
     def _forget_task(self, run_id: str, task: asyncio.Task) -> None:
-        """Drop the run's loop task once it ends, logging any crash."""
+        """Drop the run's loop task once it ends, logging any crash.
+
+        Crashes normally never reach the task: :meth:`_run_loop`
+        catches them to run the heartbeat. This is the backstop for
+        anything that escapes even that handler.
+        """
         if not task.cancelled() and task.exception() is not None:
             logger.error(
                 "Workflow run %r dispatcher loop crashed.",
@@ -147,6 +170,167 @@ class WorkflowEngine:
             )
         if self._tasks.get(run_id) is task:
             self._tasks.pop(run_id, None)
+
+    async def _run_loop(self, user_id: str, run_id: str) -> None:
+        """Run :meth:`_loop` for one run, acting as its heartbeat.
+
+        A dispatcher loop that dies of an exception — a storage fault
+        between transitions, a bug in the loop itself — would strand a
+        non-terminal run with nobody driving it until a restart. The
+        wrapper catches the crash, counts it per run, and re-dispatches
+        after a beat; a run whose loop keeps crashing is failed out
+        through :meth:`_fail_run` once the cap is hit. A clean return
+        (park, finalize, nothing to do) resets the counter, and
+        cancellation is passed through untouched.
+        """
+        try:
+            await self._loop(user_id, run_id)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # pylint: disable=broad-except
+            attempt = self._crash_counts.get(run_id, 0) + 1
+            self._crash_counts[run_id] = attempt
+            try:
+                await self._handle_loop_crash(user_id, run_id, attempt, exc)
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # pylint: disable=broad-except
+                # The heartbeat itself failing must not strand the
+                # run silently on top of the original crash.
+                logger.error(
+                    "Workflow run %r crash handling failed.",
+                    run_id,
+                    exc_info=True,
+                )
+        else:
+            self._crash_counts.pop(run_id, None)
+
+    async def _handle_loop_crash(
+        self,
+        user_id: str,
+        run_id: str,
+        attempt: int,
+        exc: BaseException,
+    ) -> None:
+        """React to one dispatcher-loop crash; see :meth:`_run_loop`.
+
+        Args:
+            user_id (`str`): The run's owner.
+            run_id (`str`): The run whose loop crashed.
+            attempt (`int`): Which consecutive crash this is.
+            exc (`BaseException`): The crash itself, for the log.
+        """
+        if attempt >= self._MAX_LOOP_CRASHES:
+            logger.warning(
+                "Workflow run %r dispatcher loop crashed %d times; "
+                "giving up and failing the run.",
+                run_id,
+                attempt,
+            )
+            self._crash_counts.pop(run_id, None)
+            # Nodes still RUNNING were interrupted mid-attempt; mark
+            # them failed so the retry endpoint can reset them.
+            await self._fail_run(
+                user_id,
+                run_id,
+                "engine loop crashed repeatedly",
+                interrupt_running=True,
+            )
+            return
+        logger.warning(
+            "Workflow run %r dispatcher loop crashed (attempt %d of "
+            "%d); re-dispatching.",
+            run_id,
+            attempt,
+            self._MAX_LOOP_CRASHES,
+            exc_info=exc,
+        )
+        self._schedule_rescue(user_id, run_id, reason="a loop crash")
+
+    def _schedule_rescue(
+        self,
+        user_id: str,
+        run_id: str,
+        *,
+        reason: str,
+    ) -> None:
+        """Spawn (and track) one delayed re-dispatch task.
+
+        Args:
+            user_id (`str`): The run's owner.
+            run_id (`str`): The run to re-dispatch.
+            reason (`str`): Why, for the re-dispatch's log line.
+        """
+        rescue = asyncio.create_task(
+            self._redispatch_after_crash(user_id, run_id, reason),
+        )
+        self._rescues.add(rescue)
+        rescue.add_done_callback(self._rescues.discard)
+
+    async def _redispatch_after_crash(
+        self,
+        user_id: str,
+        run_id: str,
+        reason: str,
+    ) -> None:
+        """Re-dispatch a run, once the dust settles.
+
+        The beat lets the outgoing task leave the registry and any
+        in-flight writes settle; the checks then re-derive whether a
+        dispatch is still wanted (a live task took over, the run
+        finished or was failed in the meantime) instead of assuming
+        it. Never raises: the caller is a fire-and-forget task.
+
+        Args:
+            user_id (`str`): The run's owner.
+            run_id (`str`): The run to re-dispatch.
+            reason (`str`): Why the re-dispatch was scheduled.
+        """
+        try:
+            await asyncio.sleep(0.5)
+            if self._closed:
+                return
+            live = self._tasks.get(run_id)
+            if live is not None and not live.done():
+                return
+            run = await self._storage.get_workflow_run(user_id, run_id)
+            if run is None or run.data.status in _RUN_TERMINAL:
+                self._crash_counts.pop(run_id, None)
+                return
+            logger.info(
+                "Re-dispatching workflow run %r after %s.",
+                run_id,
+                reason,
+            )
+            await self.dispatch(user_id, run_id)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # pylint: disable=broad-except
+            logger.error(
+                "Workflow run %r re-dispatch failed.",
+                run_id,
+                exc_info=True,
+            )
+
+    async def close(self) -> None:
+        """Stop the engine: cancel every live loop and rescue task.
+
+        Storage and the message bus must never close underneath a
+        running loop, so the lifespan calls this before tearing the
+        stack down. Records are deliberately left as they are — a run
+        mid-flight stays RUNNING, exactly what a crashed process
+        leaves behind and what the next process's
+        :meth:`recover_stale_runs` resumes.
+        """
+        self._closed = True
+        tasks = [task for task in self._tasks.values() if not task.done()]
+        rescues = [task for task in self._rescues if not task.done()]
+        for task in (*tasks, *rescues):
+            task.cancel()
+        if tasks or rescues:
+            await asyncio.gather(*tasks, *rescues, return_exceptions=True)
+        self._tasks.clear()
+        self._rescues.clear()
 
     async def _loop(self, user_id: str, run_id: str) -> None:
         """Dispatch ready nodes until the run parks, finishes or fails.
@@ -281,8 +465,10 @@ class WorkflowEngine:
                 return
             except NodeFailure as exc:
                 message = str(exc)
+                exhausted = False
 
                 def fail(record: WorkflowRunRecord):
+                    nonlocal exhausted
                     self._adopt_sessions(live, record)
                     state = record.data.node_states.setdefault(
                         node_id,
@@ -314,17 +500,21 @@ class WorkflowEngine:
                         state.status = RunStatus.PENDING
                         return [(node_id, RunStatus.PENDING, message)]
                     state.status = RunStatus.FAILED
-                    record.data.status = RunStatus.FAILED
-                    record.data.error = (
-                        f"Node {node_id!r} failed: {message}"
-                    )
-                    record.data.finished_at = datetime.now()
-                    return [
-                        (node_id, RunStatus.FAILED, message),
-                        (None, RunStatus.FAILED, record.data.error),
-                    ]
+                    exhausted = True
+                    return [(node_id, RunStatus.FAILED, message)]
 
-                await self._mutate(user_id, run_id, fail)
+                persisted = await self._mutate(user_id, run_id, fail)
+                if exhausted and persisted is not None:
+                    # The budget is gone: one shared transition fails
+                    # the run and finalizes it (cancelling unreachable
+                    # nodes), exactly like every other exhaustion path.
+                    await self._fail_run(
+                        user_id,
+                        run_id,
+                        f"Node {node_id!r} failed: {message}",
+                        node_id=node_id,
+                        node_error=message,
+                    )
                 return
 
             def succeed(record: WorkflowRunRecord):
@@ -399,6 +589,81 @@ class WorkflowEngine:
             return attempts < cfg.max_attempts
         return False
 
+    async def _fail_run(
+        self,
+        user_id: str,
+        run_id: str,
+        error: str,
+        *,
+        node_id: str | None = None,
+        node_error: str | None = None,
+        interrupt_running: bool = False,
+    ) -> None:
+        """Fail a run (and the node that exhausted its budget), then
+        walk it to its terminal record.
+
+        The one "fail the run" transition every exhaustion path
+        shares: a node's retry budget gone in :meth:`_dispatch_node`,
+        an interrupted attempt's budget gone in recovery, and the
+        heartbeat giving up on a crashing loop. Delegates the
+        terminal record — unreachable-node cancellation,
+        ``finished_at``, the terminal event — to :meth:`_finalize`, so
+        a recovery-path failure leaves exactly the record a live-path
+        failure leaves.
+
+        Args:
+            user_id (`str`): The run's owner.
+            run_id (`str`): The run to fail.
+            error (`str`): The run-level failure text.
+            node_id (`str | None`, optional): The node whose budget
+                ran out, when there is one; it is persisted FAILED.
+            node_error (`str | None`, optional): The node-level
+                failure text; defaults to *error*.
+            interrupt_running (`bool`, optional): Also fail every node
+                still RUNNING — attempts a dead loop interrupted
+                mid-flight, which the retry endpoint could otherwise
+                never reset.
+        """
+        node_text = node_error if node_error is not None else error
+
+        def fail(record: WorkflowRunRecord):
+            events: list[tuple[str | None, RunStatus, str | None]] = []
+            if node_id is not None:
+                state = record.data.node_states.setdefault(
+                    node_id,
+                    NodeRunState(),
+                )
+                state.status = RunStatus.FAILED
+                state.error = node_text
+                events.append((node_id, RunStatus.FAILED, node_text))
+            if interrupt_running:
+                for node in record.data.graph.nodes:
+                    state = record.data.node_states.setdefault(
+                        node.id,
+                        NodeRunState(),
+                    )
+                    if state.status is RunStatus.RUNNING:
+                        state.status = RunStatus.FAILED
+                        state.error = node_text
+                        events.append((node.id, RunStatus.FAILED, node_text))
+            if (
+                record.data.status in _RUN_TERMINAL
+                and record.data.status is not RunStatus.FAILED
+            ):
+                # Never resurrect or re-fail a run that finished as
+                # something else (a cancel, a raced finalize); the
+                # node-level records above still land.
+                return events
+            record.data.status = RunStatus.FAILED
+            record.data.error = error
+            record.data.finished_at = datetime.now()
+            events.append((None, RunStatus.FAILED, error))
+            return events
+
+        persisted = await self._mutate(user_id, run_id, fail)
+        if persisted is not None:
+            await self._finalize(user_id, persisted)
+
     async def _finalize(self, user_id: str, run: WorkflowRunRecord) -> None:
         """Walk a run to its terminal record.
 
@@ -410,10 +675,30 @@ class WorkflowEngine:
         already persisted (a node exhausted its budget, a cancel),
         which is kept as-is. ``finished_at`` is stamped and the
         terminal event published.
+
+        The decision is re-validated under the write lock: callers
+        decide from a snapshot, and a write that lands in between (a
+        retry resetting the failed run to PENDING) must never be
+        finalized off stale data — runnable nodes would be cancelled
+        and the run derived terminal off a reset it never saw.
         """
 
         def finish(record: WorkflowRunRecord):
             events: list[tuple[str | None, RunStatus, str | None]] = []
+            if (
+                record.data.status not in _RUN_TERMINAL
+                and (
+                    ready_nodes(record.data.graph, record.data.node_states)
+                    or any(
+                        state.status is RunStatus.WAITING_HUMAN
+                        for state in record.data.node_states.values()
+                    )
+                )
+            ):
+                # The world moved since the caller decided: the run is
+                # drivable again (or parked). Leave the record to
+                # whoever moved it — their dispatch drives it.
+                return []
             for node in record.data.graph.nodes:
                 state = record.data.node_states.setdefault(
                     node.id,
@@ -484,7 +769,7 @@ class WorkflowEngine:
         if run is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Workflow run {run_id!r} not found.",
+                detail=f"Run {run_id!r} not found.",
             )
         if run.data.status in _RUN_TERMINAL:
             raise HTTPException(
@@ -532,7 +817,7 @@ class WorkflowEngine:
         if persisted is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Workflow run {run_id!r} not found.",
+                detail=f"Run {run_id!r} not found.",
             )
         await self.dispatch(user_id, run_id)
         return persisted
@@ -554,7 +839,7 @@ class WorkflowEngine:
         if run is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Workflow run {run_id!r} not found.",
+                detail=f"Run {run_id!r} not found.",
             )
         task = self._tasks.get(run_id)
         if task is not None and not task.done():
@@ -593,7 +878,7 @@ class WorkflowEngine:
         if persisted is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Workflow run {run_id!r} not found.",
+                detail=f"Run {run_id!r} not found.",
             )
         return persisted
 
@@ -622,7 +907,7 @@ class WorkflowEngine:
         if run is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Workflow run {run_id!r} not found.",
+                detail=f"Run {run_id!r} not found.",
             )
         if run.data.status is not RunStatus.FAILED:
             raise HTTPException(
@@ -661,8 +946,17 @@ class WorkflowEngine:
         if persisted is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Workflow run {run_id!r} not found.",
+                detail=f"Run {run_id!r} not found.",
             )
+        live = self._tasks.get(run_id)
+        if live is not None and not live.done():
+            # The loop that failed the run can still be tearing down
+            # — its final pass read the run as FAILED and its finalize
+            # declines the reset record — and the dispatch below
+            # would no-op against the dying task. One delayed
+            # re-dispatch covers that window; the direct dispatch
+            # covers the task already being gone.
+            self._schedule_rescue(user_id, run_id, reason="a retry")
         await self.dispatch(user_id, run_id)
         return persisted
 
@@ -712,6 +1006,7 @@ class WorkflowEngine:
         run_id = record.id
         now = datetime.now()
         events: list[tuple[str | None, RunStatus, str | None]] = []
+        exhausted: list[str] = []
         for node in record.data.graph.nodes:
             node_state = record.data.node_states.get(node.id)
             if node_state is None:
@@ -720,17 +1015,14 @@ class WorkflowEngine:
                 node_state.error = "interrupted by restart"
                 if self._retry_left(node, node_state.attempts):
                     node_state.status = RunStatus.PENDING
-                else:
-                    node_state.status = RunStatus.FAILED
-                    record.data.status = RunStatus.FAILED
-                    record.data.error = (
-                        f"Node {node.id!r} failed: "
-                        "interrupted by restart"
+                    events.append(
+                        (node.id, node_state.status, node_state.error),
                     )
-                    record.data.finished_at = now
-                events.append(
-                    (node.id, node_state.status, node_state.error),
-                )
+                else:
+                    # No budget left: the shared fail path records the
+                    # node, fails the run and finalizes it — cancelling
+                    # unreachable nodes exactly like a live failure.
+                    exhausted.append(node.id)
                 continue
             cfg = node.config
             if (
@@ -764,6 +1056,17 @@ class WorkflowEngine:
                     status=run_status,
                     error=error,
                 )
+        for node_id in exhausted:
+            await self._fail_run(
+                user_id,
+                run_id,
+                f"Node {node_id!r} failed: interrupted by restart",
+                node_id=node_id,
+                node_error="interrupted by restart",
+            )
+        if exhausted:
+            # The run is FAILED and finalized; nothing left to resume.
+            return 1
         graph = record.data.graph
         states = record.data.node_states
         if (

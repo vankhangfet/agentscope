@@ -198,6 +198,27 @@ class _FlippingRunner(_ScriptedRunner):
         raise RuntimeError("late failure")
 
 
+class _HangingRunner(_ScriptedRunner):
+    """A turn that never completes until released.
+
+    Parks a node attempt mid-flight inside a live engine loop, the
+    state ``close()`` must tear down without corrupting.
+    """
+
+    def __init__(self, storage: RedisStorage) -> None:
+        super().__init__(storage)
+        self.release = asyncio.Event()
+
+    async def __call__(
+        self,
+        user_id: str,
+        session_id: str,
+        agent_id: str,
+        msg: Msg,
+    ) -> None:
+        await self.release.wait()
+
+
 class _FakeJudgeFactory:
     """Returns a pre-created judge agent id."""
 
@@ -230,11 +251,7 @@ class WorkflowEngineTest(IsolatedAsyncioTestCase):
         )
 
     async def asyncTearDown(self) -> None:
-        tasks = list(self.engine._tasks.values())
-        for task in tasks:
-            task.cancel()
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+        await self.engine.close()
         await self.bus.aclose()
 
     # -- helpers ------------------------------------------------------
@@ -687,6 +704,11 @@ class WorkflowEngineTest(IsolatedAsyncioTestCase):
         with self.assertRaises(HTTPException) as caught:
             await self.engine.approve(USER, "run-missing", "signoff", "approve", None)
         self.assertEqual(caught.exception.status_code, 404)
+        # The engine's noun matches WorkflowService.get_run's.
+        self.assertEqual(
+            caught.exception.detail,
+            "Run 'run-missing' not found.",
+        )
 
         with self.assertRaises(HTTPException) as caught:
             await self.engine.approve(USER, run.id, "a", "approve", None)
@@ -1155,3 +1177,197 @@ class WorkflowEngineTest(IsolatedAsyncioTestCase):
 
         self.assertEqual(cancelled.data.status, RunStatus.CANCELLED)
         self.assertEqual(self._status(cancelled, "a"), RunStatus.CANCELLED)
+
+    # -- 21./22. loop-crash heartbeat ---------------------------------
+
+    async def test_loop_crash_redispatches_and_completes(self) -> None:
+        """A dispatcher loop that crashes once is re-dispatched after a
+        beat and the run still completes, the crash logged as a
+        WARNING instead of stranding the run until restart."""
+        worker_id = await _seed_agent(self.storage, "worker", _model())
+        graph = WorkflowGraph(
+            nodes=[_agent_node("a", worker_id)],
+            edges=[],
+        )
+        run = await self._seed_run(_run(graph))
+
+        real_loop = self.engine._loop
+        entries = 0
+
+        async def crashing_loop(user_id: str, run_id: str) -> None:
+            nonlocal entries
+            entries += 1
+            if entries == 1:
+                raise RuntimeError("loop blew up")
+            return await real_loop(user_id, run_id)
+
+        self.engine._loop = crashing_loop  # pylint: disable=attribute-defined-outside-init
+        try:
+            with self.assertLogs(
+                "agentscope.app._service._workflow_engine",
+                level="WARNING",
+            ) as logs:
+                await self.engine.dispatch(USER, run.id)
+                done = await self._poll(
+                    run.id,
+                    {RunStatus.SUCCEEDED},
+                    timeout=5.0,
+                )
+        finally:
+            self.engine._loop = real_loop  # pylint: disable=attribute-defined-outside-init
+
+        self.assertEqual(self._state(done, "a").status, RunStatus.SUCCEEDED)
+        self.assertEqual(done.data.context["a"]["text"], "canned")
+        # The crashed loop ran, then a fresh one finished the work.
+        self.assertGreaterEqual(entries, 2)
+        self.assertTrue(
+            any("crashed" in line for line in logs.output),
+            logs.output,
+        )
+
+    async def test_persistent_loop_crash_fails_run_then_retry_revives(
+        self,
+    ) -> None:
+        """A loop that keeps crashing gives up at the cap: the run is
+        FAILED with the crash error, and retry() revives it once the
+        loop is healthy again."""
+        worker_id = await _seed_agent(self.storage, "worker", _model())
+        graph = WorkflowGraph(
+            nodes=[_agent_node("a", worker_id)],
+            edges=[],
+        )
+        run = await self._seed_run(_run(graph))
+        real_loop = self.engine._loop
+        entries = 0
+
+        async def crashing_loop(user_id: str, run_id: str) -> None:
+            nonlocal entries
+            entries += 1
+            raise RuntimeError("loop blew up")
+
+        self.engine._loop = crashing_loop  # pylint: disable=attribute-defined-outside-init
+        try:
+            with self.assertLogs(
+                "agentscope.app._service._workflow_engine",
+                level="WARNING",
+            ) as logs:
+                await self.engine.dispatch(USER, run.id)
+                failed = await self._poll(
+                    run.id,
+                    {RunStatus.FAILED},
+                    timeout=5.0,
+                )
+            # No further dispatches once the run has given up.
+            await asyncio.sleep(0.1)
+            self.assertEqual(entries, 3)
+        finally:
+            self.engine._loop = real_loop  # pylint: disable=attribute-defined-outside-init
+
+        self.assertEqual(failed.data.error, "engine loop crashed repeatedly")
+        self.assertIsNotNone(failed.data.finished_at)
+        self.assertEqual(await self.storage.list_active_workflow_runs(), [])
+        self.assertTrue(
+            any("giving up" in line for line in logs.output),
+            logs.output,
+        )
+
+        # The failed run is recoverable through the retry endpoint.
+        retried = await self.engine.retry(USER, run.id)
+        self.assertEqual(retried.data.status, RunStatus.PENDING)
+        done = await self._poll(run.id, {RunStatus.SUCCEEDED})
+        state = self._state(done, "a")
+        self.assertEqual(state.status, RunStatus.SUCCEEDED)
+        self.assertEqual(state.attempts, 1)
+
+    # -- 23. shutdown ---------------------------------------------------
+
+    async def test_close_cancels_midflight_loop_for_recovery(self) -> None:
+        """close() cancels live loops without touching storage: the run
+        stays RUNNING exactly as a crashed process would leave it, and
+        the next process's recovery sweep resumes it with the
+        interrupted attempt counted against the budget."""
+        worker_id = await _seed_agent(self.storage, "worker", _model())
+        graph = WorkflowGraph(
+            nodes=[_agent_node("work", worker_id)],
+            edges=[],
+        )
+        run = await self._seed_run(_run(graph))
+        engine = WorkflowEngine(
+            storage=self.storage,
+            message_bus=self.bus,
+            chat_runner=_HangingRunner(self.storage),
+            judge_agent_factory=_FakeJudgeFactory(self.judge_id),
+        )
+
+        await engine.dispatch(USER, run.id)
+        mid = await self._poll_node(run.id, "work", RunStatus.RUNNING)
+        self.assertEqual(mid.data.status, RunStatus.RUNNING)
+        task = engine._tasks[run.id]
+
+        await engine.close()
+
+        self.assertTrue(task.cancelled())
+        self.assertEqual(engine._tasks, {})
+        stranded = await self.storage.get_workflow_run(USER, run.id)
+        assert stranded is not None  # for the type checker
+        self.assertEqual(stranded.data.status, RunStatus.RUNNING)
+        self.assertEqual(
+            self._state(stranded, "work").status,
+            RunStatus.RUNNING,
+        )
+
+        # A restarted process sweeps the stranded run and finishes it.
+        successor = WorkflowEngine(
+            storage=self.storage,
+            message_bus=self.bus,
+            chat_runner=self.runner,
+            judge_agent_factory=_FakeJudgeFactory(self.judge_id),
+        )
+        touched = await successor.recover_stale_runs()
+        self.assertEqual(touched, 1)
+        done = await self._poll(run.id, {RunStatus.SUCCEEDED})
+        await successor.close()
+        state = self._state(done, "work")
+        self.assertEqual(state.status, RunStatus.SUCCEEDED)
+        # The interrupted attempt plus the recovery retry.
+        self.assertEqual(state.attempts, 2)
+
+    async def test_recover_exhausted_interruption_cancels_unreachable(
+        self,
+    ) -> None:
+        """An interrupted attempt with no retry budget left fails its
+        node and the run through the same path a live failure takes:
+        the unreachable downstream node is CANCELLED, not left
+        PENDING."""
+        worker_id = await _seed_agent(self.storage, "worker", _model())
+        graph = WorkflowGraph(
+            nodes=[
+                _agent_node("a", worker_id, max_retries=0),
+                _agent_node("b", worker_id),
+            ],
+            edges=[_edge("a", "b")],
+        )
+        run = await self._seed_run(
+            _run(
+                graph,
+                run_status=RunStatus.RUNNING,
+                node_states={
+                    "a": NodeRunState(
+                        status=RunStatus.RUNNING,
+                        attempts=1,
+                    ),
+                },
+            ),
+        )
+
+        touched = await self.engine.recover_stale_runs()
+
+        self.assertEqual(touched, 1)
+        failed = await self.storage.get_workflow_run(USER, run.id)
+        assert failed is not None  # for the type checker
+        self.assertEqual(failed.data.status, RunStatus.FAILED)
+        self.assertIn("interrupted by restart", failed.data.error)
+        self.assertEqual(self._state(failed, "a").status, RunStatus.FAILED)
+        self.assertEqual(self._state(failed, "b").status, RunStatus.CANCELLED)
+        self.assertIsNotNone(failed.data.finished_at)
+        self.assertEqual(await self.storage.list_active_workflow_runs(), [])

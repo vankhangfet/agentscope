@@ -367,3 +367,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         stack.push_async_callback(_close_realtime_connections)
 
         yield
+
+        # The engine is not stack-acquired (it is built on ChatService,
+        # its chat runner, so it is wired after the stack's early
+        # members), so its dispatcher loops are stopped explicitly here
+        # — while storage and the message bus are still open, before
+        # the stack unwinds underneath them. Runs are left wherever
+        # they are; the next process's recovery sweep resumes them.
+        engine = getattr(app.state, "workflow_engine", None)
+        if engine is not None:
+            await engine.close()
