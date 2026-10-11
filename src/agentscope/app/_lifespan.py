@@ -274,9 +274,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         scheduler.set_workflow_starter(_start_scheduled_workflow)
 
         # Only now — with the starter wired — do the timers start.
-        # Entering this late also means the LIFO teardown stops the
-        # scheduler before the dispatchers and services it feeds,
-        # the safe direction for a shutdown race.
+        # Entering this late only shifts the LIFO shutdown earlier,
+        # past the services built in between (the SOP service); the
+        # dispatchers the fire path feeds are entered further down
+        # and already stopped before the scheduler in either layout.
         await stack.enter_async_context(scheduler)
 
         # ---------------- Knowledge-base wiring ----------------

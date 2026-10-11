@@ -1413,8 +1413,9 @@ class AsyncSQLAlchemyStorageTest(IsolatedAsyncioTestCase):
 
         The recovery sweep runs on every boot; a row whose payload is
         valid JSON but no longer a valid record (schema drift after an
-        upgrade) is warned at and skipped so every healthy active run
-        still resumes.
+        upgrade, or a payload that is not even an object — the shapes
+        a hand-edit produces) is warned at and skipped so every healthy
+        active run still resumes.
         """
         healthy = WorkflowRunRecord(
             user_id="user-1",
@@ -1435,22 +1436,28 @@ class AsyncSQLAlchemyStorageTest(IsolatedAsyncioTestCase):
         )
         await self.storage.upsert_workflow_run("user-1", healthy)
 
-        # The poisoned sibling: inserted at the row layer so the record
-        # model cannot repair it on the way in. Promoted columns are
-        # plausible; the payload is not a WorkflowRunRecord.
+        # The poisoned siblings: inserted at the row layer so the
+        # record model cannot repair them on the way in. Promoted
+        # columns are plausible; the payloads are not records — an
+        # object that fails validation, a JSON array and a scalar.
         # pylint: disable=protected-access
         async with self.storage._session() as sess:
-            sess.add(
-                WorkflowRunRow(
-                    id="run-poison",
-                    created_at=datetime.now(),
-                    updated_at=datetime.now(),
-                    payload={"bad": 1},
-                    user_id="user-1",
-                    workflow_id="wf-1",
-                    status=RunStatus.RUNNING.value,
-                ),
-            )
+            for row_id, payload in (
+                ("run-poison", {"bad": 1}),
+                ("run-poison-list", ["not", "an", "object"]),
+                ("run-poison-int", 42),
+            ):
+                sess.add(
+                    WorkflowRunRow(
+                        id=row_id,
+                        created_at=datetime.now(),
+                        updated_at=datetime.now(),
+                        payload=payload,
+                        user_id="user-1",
+                        workflow_id="wf-1",
+                        status=RunStatus.RUNNING.value,
+                    ),
+                )
             await sess.commit()
 
         runs = await self.storage.list_active_workflow_runs()

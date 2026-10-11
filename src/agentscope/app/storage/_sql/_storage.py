@@ -559,7 +559,10 @@ class AsyncSQLAlchemyStorage(StorageBase):
         )
         for sch in schedules:
             data = (sch.payload or {}).get("data")
-            if isinstance(data, dict) and data.get("workflow_id"):
+            if (
+                isinstance(data, dict)
+                and data.get("workflow_id") is not None
+            ):
                 continue
             await self._delete_schedule_impl(sess, user_id, sch.id)
 
@@ -2361,11 +2364,11 @@ class AsyncSQLAlchemyStorage(StorageBase):
 
         ``status`` is a promoted column, so the filter runs in the
         database and terminal rows are never deserialised. A row whose
-        payload no longer validates against the record schema
-        (schema drift after an upgrade, hand-edited JSON) is named in
-        a warning and skipped — mirroring the Redis path's
-        self-healing sweep — so one poisoned row cannot abort every
-        boot's recovery.
+        payload no longer validates against the record schema (schema
+        drift after an upgrade, hand-edited JSON — including a payload
+        that is not even an object) is named in a warning and skipped
+        — mirroring the Redis path's self-healing sweep — so one
+        poisoned row cannot abort every boot's recovery.
         """
         from sqlalchemy import select
 
@@ -2380,9 +2383,12 @@ class AsyncSQLAlchemyStorage(StorageBase):
         for row in rows:
             try:
                 records.append(_to_record(row, WorkflowRunRecord))
-            except ValueError as exc:
-                # pydantic's ValidationError (a ValueError): the row is
-                # valid JSON but not a valid record.
+            except (ValueError, TypeError) as exc:
+                # pydantic's ValidationError (a ValueError) on a
+                # payload that is valid JSON but not a valid record,
+                # or a TypeError from ``dict()`` on a payload that is
+                # not even an object (a hand-edited JSON array or
+                # scalar).
                 _logger.warning(
                     "Skipping unreadable workflow run row %r: %s",
                     row.id,

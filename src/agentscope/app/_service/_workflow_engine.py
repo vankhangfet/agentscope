@@ -1320,6 +1320,14 @@ async def make_judge_agent_factory(
         if key not in cache:
             for agent in await storage.list_agents(user_id):
                 if agent.data.name == name:
+                    # Info, not silent: a deliberate name collision
+                    # (a user agent named like a judge marker) adopts
+                    # that agent, and this makes it diagnosable.
+                    logger.info(
+                        "Reusing existing %r agent %r as judge",
+                        name,
+                        agent.id,
+                    )
                     cache[key] = agent.id
                     break
             else:
