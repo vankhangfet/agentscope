@@ -379,9 +379,20 @@ export function retryRun(runId: string) {
 	return client.post<RunDetailResponse>(`/workflow/runs/${runId}/retry`, null);
 }
 
-/** Exercise one credential with a single minimal model call. */
+/**
+ * Exercise one credential with a single minimal model call.
+ *
+ * Errors are silent at the client level: callers surface provider /
+ * auth / network failures in their own UI (the test dialog's result
+ * banner), and the client-wide toast would double-report them.
+ */
 export function testCredential(credentialId: string, body: TestCredentialRequest) {
-	return client.post<TestCredentialResult>(`/credential/${credentialId}/test`, body);
+	return client.post<TestCredentialResult>(
+		`/credential/${credentialId}/test`,
+		body,
+		undefined,
+		{ silent: true },
+	);
 }
 
 /**

@@ -25,9 +25,11 @@ interface Props {
 
 /**
  * Editor for `string[]` schema properties — chips with per-item remove,
- * plus an add-item input that commits on Enter or the trailing button.
- * Blank and duplicate entries are ignored. `onChange` always emits the
- * full new list, so an emptied list is a deliberate `[]`, not "unset".
+ * plus an add-item input that commits on Enter, blur, or the trailing
+ * button. Blank and duplicate entries are ignored (which also makes a
+ * blur-then-click double commit a no-op the second time). `onChange`
+ * always emits the full new list, so an emptied list is a deliberate
+ * `[]`, not "unset".
  */
 export function ArrayField({
 	id,

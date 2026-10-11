@@ -564,6 +564,7 @@
 		"target": "目标",
 		"targetAgent": "智能体",
 		"targetAgentFixed": "已有日程的智能体与模型无法修改。",
+		"customCronPreserved": "该日程使用预设无法表达的自定义周期——保存时将保留原有周期。",
 		"targetWorkflow": "工作流",
 		"targetWorkflowDesc": "每次触发都会启动所选工作流的一次运行；智能体与模型设置将被忽略。",
 		"targetSelectWorkflow": "选择工作流",

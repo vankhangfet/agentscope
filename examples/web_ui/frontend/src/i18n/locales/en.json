@@ -564,6 +564,7 @@
 		"target": "Target",
 		"targetAgent": "Agent",
 		"targetAgentFixed": "The agent and model of an existing schedule cannot be changed.",
+		"customCronPreserved": "This schedule uses a custom cadence that these presets can't represent — the stored cadence is preserved on save.",
 		"targetWorkflow": "Workflow",
 		"targetWorkflowDesc": "Each fire starts a run of the selected workflow; agent and model settings are ignored.",
 		"targetSelectWorkflow": "Select a workflow",

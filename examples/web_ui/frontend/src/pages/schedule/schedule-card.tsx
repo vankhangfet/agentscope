@@ -26,7 +26,15 @@ export function ScheduleCard({ schedule, onClick }: ScheduleCardProps) {
 	return (
 		<Item className="cursor-pointer hover:shadow-md" variant="outline" onClick={onClick}>
 			<ItemMedia variant="icon">
-				{workflowName ? <Workflow /> : data.enabled ? <Bot /> : <BotOff />}
+				{workflowName ? (
+					// Dimmed rather than swapped out: there is no "workflow
+					// off" glyph, and the paused badge says it already.
+					<Workflow className={data.enabled ? undefined : 'text-muted-foreground'} />
+				) : data.enabled ? (
+					<Bot />
+				) : (
+					<BotOff />
+				)}
 			</ItemMedia>
 			<ItemContent>
 				<ItemTitle className="font-[550] truncate max-w-full">{data.name}</ItemTitle>

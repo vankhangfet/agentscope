@@ -80,6 +80,13 @@ interface ScheduleForm {
 	workflowId: string;
 	/** `run_input` as JSON text — validated before submit. */
 	runInput: string;
+	/**
+	 * The edited record's stored cron parses as `custom` — the dialog's
+	 * four presets can't represent it, so the cadence controls are
+	 * shown disabled and the PATCH omits `cron_expression`, keeping the
+	 * stored cadence (the backend leaves absent keys untouched).
+	 */
+	customCron: boolean;
 }
 
 function getDefaultForm(): ScheduleForm {
@@ -101,6 +108,7 @@ function getDefaultForm(): ScheduleForm {
 		target: 'agent',
 		workflowId: '',
 		runInput: '{}',
+		customCron: false,
 	};
 }
 
@@ -108,7 +116,8 @@ function getDefaultForm(): ScheduleForm {
  * Rebuild the dialog's date field from a parsed cron expression. The
  * create flow only ever writes these four shapes, so the round trip is
  * lossless for user-made schedules; a custom (e.g. agent-made) cron
- * degrades to the daily preset and is re-generated on save.
+ * degrades to the daily preset for display only — the submit keeps the
+ * stored cron untouched (see `customCron` on the form).
  */
 function dateFromParsedCron(cron: string, startedAt: string, now: Date): Date {
 	const parts = cron.trim().split(/\s+/);
@@ -145,7 +154,8 @@ function formFromSchedule(schedule: ScheduleRecord): ScheduleForm {
 	return {
 		name: data.name,
 		description: data.description,
-		// A custom cron (e.g. agent-made) degrades to the daily preset.
+		// A custom cron (e.g. agent-made) degrades to the daily preset;
+		// `customCron` keeps the submit from rewriting the stored one.
 		freq: (parsed.frequency === 'custom' ? 'daily' : parsed.frequency) as FreqType,
 		date: dateFromParsedCron(data.cron_expression, data.started_at, now),
 		time: parsed.time,
@@ -158,6 +168,7 @@ function formFromSchedule(schedule: ScheduleRecord): ScheduleForm {
 		target: data.workflow_id ? 'workflow' : 'agent',
 		workflowId: data.workflow_id ?? '',
 		runInput: JSON.stringify(data.run_input ?? {}, null, 2),
+		customCron: parsed.frequency === 'custom',
 	};
 }
 
@@ -304,7 +315,11 @@ export function CreateScheduleDialog({
 				const body = {
 					name: form.name.trim(),
 					description: form.description.trim(),
-					cron_expression: cronExpression,
+					// A custom-origin cron can't be represented by the
+					// presets — omit the key so the backend keeps the
+					// stored cadence instead of rewriting it (absent keys
+					// are left untouched by the update merge).
+					...(form.customCron ? {} : { cron_expression: cronExpression }),
 					timezone: form.timezone,
 					// The agent and model of an existing schedule cannot be
 					// patched — the API offers no fields for it.
@@ -406,6 +421,13 @@ export function CreateScheduleDialog({
 							/>
 						</Field>
 
+						{/* Custom-origin cadence (edit only): the presets can't
+						    represent it, so the controls sit disabled and the
+						    submit keeps the stored cron untouched. */}
+						{form.customCron && (
+							<FieldDescription>{t('schedule.customCronPreserved')}</FieldDescription>
+						)}
+
 						<div className="flex gap-3">
 							<Field className="flex-1">
 								<FieldLabel>{t('common.date')}</FieldLabel>
@@ -413,6 +435,7 @@ export function CreateScheduleDialog({
 									date={form.date}
 									onSelect={(d) => d && set('date', d)}
 									placeholder={t('schedule.pickDate')}
+									disabled={form.customCron}
 								/>
 							</Field>
 							<Field className="w-48">
@@ -421,6 +444,7 @@ export function CreateScheduleDialog({
 									type="time"
 									value={form.time}
 									onChange={(e) => set('time', e.target.value)}
+									disabled={form.customCron}
 									className="appearance-none [&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-calendar-picker-indicator]:appearance-none"
 								/>
 							</Field>
@@ -440,6 +464,7 @@ export function CreateScheduleDialog({
 							<Select
 								value={form.freq}
 								onValueChange={(v) => set('freq', v as FreqType)}
+								disabled={form.customCron}
 							>
 								<SelectTrigger>
 									<SelectValue />
@@ -467,7 +492,7 @@ export function CreateScheduleDialog({
 								date={form.freq === 'once' ? undefined : form.endDate}
 								onSelect={(d) => set('endDate', d)}
 								placeholder={t('schedule.pickDate')}
-								disabled={form.freq === 'once'}
+								disabled={form.freq === 'once' || form.customCron}
 							/>
 						</Field>
 

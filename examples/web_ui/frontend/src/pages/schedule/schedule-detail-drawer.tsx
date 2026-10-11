@@ -152,7 +152,7 @@ export function ScheduleDetailDrawer({
 
 	return (
 		<>
-			<Drawer open={open} onOpenChange={onOpenChange}>
+			<Drawer open={open} onOpenChange={onOpenChange} direction="right">
 				<DrawerContent className="max-h-full h-full min-w-[30rem] ml-auto border-none ring-none! shadow-none!">
 					<DrawerHeader>
 						<DrawerTitle>{data.name}</DrawerTitle>
