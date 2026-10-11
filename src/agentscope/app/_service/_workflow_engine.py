@@ -279,7 +279,9 @@ class WorkflowEngine:
         in-flight writes settle; the checks then re-derive whether a
         dispatch is still wanted (a live task took over, the run
         finished or was failed in the meantime) instead of assuming
-        it. Never raises: the caller is a fire-and-forget task.
+        it. Attempts the crash interrupted mid-flight are reconciled
+        first, so the fresh loop never plans around a stuck-RUNNING
+        node. Never raises: the caller is a fire-and-forget task.
 
         Args:
             user_id (`str`): The run's owner.
@@ -297,6 +299,17 @@ class WorkflowEngine:
             if run is None or run.data.status in _RUN_TERMINAL:
                 self._crash_counts.pop(run_id, None)
                 return
+            if any(
+                state.status is RunStatus.RUNNING
+                for state in run.data.node_states.values()
+            ):
+                if not await self._settle_interrupted(
+                    user_id,
+                    run_id,
+                    "interrupted by loop crash",
+                ):
+                    self._crash_counts.pop(run_id, None)
+                    return
             logger.info(
                 "Re-dispatching workflow run %r after %s.",
                 run_id,
@@ -311,6 +324,52 @@ class WorkflowEngine:
                 run_id,
                 exc_info=True,
             )
+
+    async def _settle_interrupted(
+        self,
+        user_id: str,
+        run_id: str,
+        cause: str,
+    ) -> bool:
+        """Settle nodes a dead loop left mid-attempt.
+
+        The same reconciliation restart recovery applies: an
+        interrupted attempt with budget left goes back to PENDING
+        with *cause* recorded (its try already counted against the
+        budget); one whose budget is gone fails the run through
+        :meth:`_fail_run` — which also finalizes it, cancelling the
+        nodes the failure made unreachable.
+
+        Args:
+            user_id (`str`): The run's owner.
+            run_id (`str`): The run to settle.
+            cause (`str`): Failure text recorded on the nodes.
+
+        Returns:
+            `bool`: False when the run was failed (nothing left to
+                drive); True when it is still drivable.
+        """
+        exhausted: list[str] = []
+
+        def reconcile(record: WorkflowRunRecord):
+            events, spent = self._reconcile_interrupted(record, cause)
+            exhausted.extend(spent)
+            return events
+
+        await self._mutate(user_id, run_id, reconcile)
+        if exhausted:
+            # interrupt_running also fails any further stuck-RUNNING
+            # node — by construction one whose budget is gone too.
+            await self._fail_run(
+                user_id,
+                run_id,
+                f"Node {exhausted[0]!r} failed: {cause}",
+                node_id=exhausted[0],
+                node_error=cause,
+                interrupt_running=True,
+            )
+            return False
+        return True
 
     async def close(self) -> None:
         """Stop the engine: cancel every live loop and rescue task.
@@ -589,6 +648,46 @@ class WorkflowEngine:
             return attempts < cfg.max_attempts
         return False
 
+    def _reconcile_interrupted(
+        self,
+        record: WorkflowRunRecord,
+        cause: str,
+    ) -> tuple[
+        list[tuple[str | None, RunStatus, str | None]],
+        list[str],
+    ]:
+        """Classify the stuck-RUNNING nodes of *record*, in place.
+
+        One budget decision shared by both interruption contexts —
+        restart recovery and the crash rescue: a node whose budget
+        still allows a try is flipped back to PENDING with *cause* as
+        its error (the interrupted attempt already consumed one), and
+        the ids of the rest are returned for the caller to fail the
+        run with.
+
+        Args:
+            record (`WorkflowRunRecord`): The run record to
+                reconcile; mutated in place.
+            cause (`str`): Failure text recorded on the nodes.
+
+        Returns:
+            `tuple[list, list]`: The PENDING-transition events, and
+                the ids whose retry budget is exhausted.
+        """
+        events: list[tuple[str | None, RunStatus, str | None]] = []
+        exhausted: list[str] = []
+        for node in record.data.graph.nodes:
+            state = record.data.node_states.get(node.id)
+            if state is None or state.status is not RunStatus.RUNNING:
+                continue
+            state.error = cause
+            if self._retry_left(node, state.attempts):
+                state.status = RunStatus.PENDING
+                events.append((node.id, RunStatus.PENDING, cause))
+            else:
+                exhausted.append(node.id)
+        return events, exhausted
+
     async def _fail_run(
         self,
         user_id: str,
@@ -677,10 +776,12 @@ class WorkflowEngine:
         terminal event published.
 
         The decision is re-validated under the write lock: callers
-        decide from a snapshot, and a write that lands in between (a
-        retry resetting the failed run to PENDING) must never be
-        finalized off stale data — runnable nodes would be cancelled
-        and the run derived terminal off a reset it never saw.
+        decide from a snapshot, and a fresh record that is drivable
+        again (ready nodes), parked (a WAITING_HUMAN node) or still
+        working (a RUNNING attempt) is never finalized off the stale
+        decision — runnable nodes would be cancelled and the run
+        derived terminal around work it never saw settle. Whoever
+        moved the record owns driving it.
         """
 
         def finish(record: WorkflowRunRecord):
@@ -690,14 +791,12 @@ class WorkflowEngine:
                 and (
                     ready_nodes(record.data.graph, record.data.node_states)
                     or any(
-                        state.status is RunStatus.WAITING_HUMAN
+                        state.status
+                        in (RunStatus.RUNNING, RunStatus.WAITING_HUMAN)
                         for state in record.data.node_states.values()
                     )
                 )
             ):
-                # The world moved since the caller decided: the run is
-                # drivable again (or parked). Leave the record to
-                # whoever moved it — their dispatch drives it.
                 return []
             for node in record.data.graph.nodes:
                 state = record.data.node_states.setdefault(
@@ -1005,24 +1104,13 @@ class WorkflowEngine:
         user_id = record.user_id
         run_id = record.id
         now = datetime.now()
-        events: list[tuple[str | None, RunStatus, str | None]] = []
-        exhausted: list[str] = []
+        events, exhausted = self._reconcile_interrupted(
+            record,
+            "interrupted by restart",
+        )
         for node in record.data.graph.nodes:
             node_state = record.data.node_states.get(node.id)
             if node_state is None:
-                continue
-            if node_state.status is RunStatus.RUNNING:
-                node_state.error = "interrupted by restart"
-                if self._retry_left(node, node_state.attempts):
-                    node_state.status = RunStatus.PENDING
-                    events.append(
-                        (node.id, node_state.status, node_state.error),
-                    )
-                else:
-                    # No budget left: the shared fail path records the
-                    # node, fails the run and finalizes it — cancelling
-                    # unreachable nodes exactly like a live failure.
-                    exhausted.append(node.id)
                 continue
             cfg = node.config
             if (

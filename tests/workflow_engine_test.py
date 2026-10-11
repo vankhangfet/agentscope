@@ -1371,3 +1371,133 @@ class WorkflowEngineTest(IsolatedAsyncioTestCase):
         self.assertEqual(self._state(failed, "b").status, RunStatus.CANCELLED)
         self.assertIsNotNone(failed.data.finished_at)
         self.assertEqual(await self.storage.list_active_workflow_runs(), [])
+
+    # -- 24.-26. crash reconciliation and finalize hardening ---------
+
+    async def test_crash_with_interrupted_attempt_reconciles(self) -> None:
+        """A loop crash between a node's start and outcome writes
+        leaves the node stuck RUNNING; the rescue reconciles it back
+        to PENDING (budget-aware) and the re-dispatched run completes
+        — instead of the run being derived SUCCEEDED around the stuck
+        node."""
+        worker_id = await _seed_agent(self.storage, "worker", _model())
+        graph = WorkflowGraph(
+            nodes=[_agent_node("a", worker_id)],
+            edges=[],
+        )
+        run = await self._seed_run(_run(graph))
+        real_mutate = self.engine._mutate
+        calls = 0
+
+        async def faulting_mutate(
+            user_id: str,
+            run_id: str,
+            apply: Any,
+        ) -> Any:
+            # Fault the third transition — the single node's outcome
+            # write — after RUNNING (attempt already counted) was
+            # persisted by the second.
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise RuntimeError("storage fault between transitions")
+            return await real_mutate(user_id, run_id, apply)
+
+        self.engine._mutate = faulting_mutate  # pylint: disable=attribute-defined-outside-init
+        try:
+            with self.assertLogs(
+                "agentscope.app._service._workflow_engine",
+                level="WARNING",
+            ) as logs:
+                await self.engine.dispatch(USER, run.id)
+                done = await self._poll(
+                    run.id,
+                    {RunStatus.SUCCEEDED},
+                    timeout=5.0,
+                )
+        finally:
+            self.engine._mutate = real_mutate  # pylint: disable=attribute-defined-outside-init
+
+        state = self._state(done, "a")
+        self.assertEqual(state.status, RunStatus.SUCCEEDED)
+        # The interrupted attempt plus the reconciled retry.
+        self.assertEqual(state.attempts, 2)
+        self.assertIsNone(state.error)
+        self.assertEqual(done.data.context["a"]["text"], "canned")
+        self.assertTrue(
+            any("crashed" in line for line in logs.output),
+            logs.output,
+        )
+
+    async def test_crash_with_exhausted_attempt_fails_run(self) -> None:
+        """The same crash with no retry budget left fails the node
+        and the run through the shared fail path — never a SUCCEEDED
+        run around a dead attempt."""
+        worker_id = await _seed_agent(self.storage, "worker", _model())
+        graph = WorkflowGraph(
+            nodes=[_agent_node("a", worker_id, max_retries=0)],
+            edges=[],
+        )
+        run = await self._seed_run(_run(graph))
+        real_mutate = self.engine._mutate
+        calls = 0
+
+        async def faulting_mutate(
+            user_id: str,
+            run_id: str,
+            apply: Any,
+        ) -> Any:
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise RuntimeError("storage fault between transitions")
+            return await real_mutate(user_id, run_id, apply)
+
+        self.engine._mutate = faulting_mutate  # pylint: disable=attribute-defined-outside-init
+        try:
+            await self.engine.dispatch(USER, run.id)
+            failed = await self._poll(
+                run.id,
+                {RunStatus.FAILED},
+                timeout=5.0,
+            )
+        finally:
+            self.engine._mutate = real_mutate  # pylint: disable=attribute-defined-outside-init
+
+        self.assertEqual(failed.data.status, RunStatus.FAILED)
+        self.assertIn("interrupted by loop crash", failed.data.error)
+        state = self._state(failed, "a")
+        self.assertEqual(state.status, RunStatus.FAILED)
+        self.assertIn("interrupted by loop crash", state.error)
+        self.assertIsNotNone(failed.data.finished_at)
+        self.assertEqual(await self.storage.list_active_workflow_runs(), [])
+
+    async def test_finalize_declines_inflight_record(self) -> None:
+        """_finalize never derives a terminal status off a record with
+        in-flight (RUNNING) work: the driver that owns the attempt
+        settles it, not the finalizer."""
+        worker_id = await _seed_agent(self.storage, "worker", _model())
+        graph = WorkflowGraph(
+            nodes=[_agent_node("a", worker_id)],
+            edges=[],
+        )
+        run = await self._seed_run(
+            _run(
+                graph,
+                run_status=RunStatus.RUNNING,
+                node_states={
+                    "a": NodeRunState(
+                        status=RunStatus.RUNNING,
+                        attempts=1,
+                    ),
+                },
+            ),
+        )
+
+        await self.engine._finalize(USER, run)
+
+        after = await self.storage.get_workflow_run(USER, run.id)
+        assert after is not None  # for the type checker
+        self.assertEqual(after.data.status, RunStatus.RUNNING)
+        self.assertEqual(self._state(after, "a").status, RunStatus.RUNNING)
+        self.assertIsNone(after.data.finished_at)
