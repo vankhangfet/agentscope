@@ -145,7 +145,7 @@ export function WorkflowPage() {
 			const detail = await getWorkflow(workflow.id);
 			await createWorkflow.mutateAsync({
 				...detail.data,
-				name: `${detail.data.name} (copy)`,
+				name: `${detail.data.name}${t('workflow.list.copySuffix')}`,
 				version: undefined,
 			});
 			toast.success(t('workflow.list.duplicated'));

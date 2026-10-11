@@ -569,6 +569,7 @@
 			"nodeCount_one": "{{count}} 个节点",
 			"nodeCount_other": "{{count}} 个节点",
 			"version": "v{{version}}",
+			"copySuffix": "（副本）",
 			"deleteEntity": "工作流",
 			"duplicated": "工作流已复制",
 			"actions": {
@@ -581,7 +582,83 @@
 		},
 		"builder": {
 			"title": "工作流编辑器",
-			"comingSoon": "画布编辑器即将上线。"
+			"namePlaceholder": "工作流名称",
+			"save": "保存",
+			"saving": "保存中…",
+			"saved": "工作流已保存",
+			"problems": "问题",
+			"problemsCount_one": "{{count}} 个问题",
+			"problemsCount_other": "{{count}} 个问题",
+			"hideProblems": "隐藏问题",
+			"loadFailed": "无法加载工作流",
+			"emptyCanvas": "画布为空",
+			"emptyCanvasHint": "点击左侧节点类型，或将其拖放到画布上",
+			"palette": {
+				"title": "节点类型",
+				"hint": "点击添加到画布中心，或拖放到画布上",
+				"agent": {
+					"name": "智能体",
+					"description": "运行一个智能体直至完成"
+				},
+				"condition": {
+					"name": "条件",
+					"description": "按规则路由到一个分支"
+				},
+				"loop": {
+					"name": "循环",
+					"description": "遍历列表或重试直到通过"
+				},
+				"human_approval": {
+					"name": "审批",
+					"description": "等待人工决策"
+				}
+			},
+			"config": {
+				"close": "关闭",
+				"idLabel": "节点 ID",
+				"idInvalid": "以字母或数字开头，后续为字母、数字、- 或 _",
+				"agent": {
+					"agent": "智能体",
+					"selectPlaceholder": "选择智能体",
+					"promptTemplate": "提示词模板",
+					"maxRetries": "最大重试次数"
+				},
+				"condition": {
+					"branches": "分支",
+					"label": "标签",
+					"rule": "规则",
+					"addBranch": "添加分支",
+					"removeBranch": "移除分支",
+					"model": "判定模型",
+					"modelPlaceholder": "使用运行默认模型",
+					"modelHint": "仅 llm_judge 规则需要；留空继承运行默认模型。"
+				},
+				"loop": {
+					"mode": "模式",
+					"modeIterate": "遍历列表",
+					"modeRetryUntil": "重试直到通过",
+					"listTemplate": "列表模板",
+					"itemTemplate": "单项模板",
+					"parallel": "并行",
+					"parallelNote": "v1：顺序执行",
+					"bodyAgent": "主体智能体",
+					"verifierPrompt": "验证提示词",
+					"verifierPlaceholder": "仅在结果满足以下条件时通过…",
+					"maxAttempts": "最大尝试次数"
+				},
+				"approval": {
+					"approvers": "审批人",
+					"approverPlaceholder": "用户 ID",
+					"approversHint": "留空表示由运行所有者决定。",
+					"removeApprover": "移除审批人",
+					"timeoutHours": "超时（小时）",
+					"timeoutBranch": "超时后",
+					"timeoutFail": "运行失败",
+					"timeoutCustom": "跳转分支",
+					"customBranchPlaceholder": "分支标签",
+					"timeoutBranchHint": "自定义分支必须与某条出边的标签一致。"
+				}
+			}
 		},
 		"runs": {
 			"title": "工作流运行",

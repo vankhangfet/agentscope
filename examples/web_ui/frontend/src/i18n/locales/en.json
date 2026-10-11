@@ -569,6 +569,7 @@
 			"nodeCount_one": "{{count}} node",
 			"nodeCount_other": "{{count}} nodes",
 			"version": "v{{version}}",
+			"copySuffix": " (copy)",
 			"deleteEntity": "workflow",
 			"duplicated": "Workflow duplicated",
 			"actions": {
@@ -581,7 +582,83 @@
 		},
 		"builder": {
 			"title": "Workflow Builder",
-			"comingSoon": "The canvas builder is coming soon."
+			"namePlaceholder": "Workflow name",
+			"save": "Save",
+			"saving": "Saving…",
+			"saved": "Workflow saved",
+			"problems": "Problems",
+			"problemsCount_one": "{{count}} problem",
+			"problemsCount_other": "{{count}} problems",
+			"hideProblems": "Hide problems",
+			"loadFailed": "Couldn't load the workflow",
+			"emptyCanvas": "The canvas is empty",
+			"emptyCanvasHint": "Click a node type on the left, or drag one onto the canvas",
+			"palette": {
+				"title": "Node types",
+				"hint": "Click to add at the center, or drag onto the canvas",
+				"agent": {
+					"name": "Agent",
+					"description": "Run one agent to completion"
+				},
+				"condition": {
+					"name": "Condition",
+					"description": "Route to one branch by rule"
+				},
+				"loop": {
+					"name": "Loop",
+					"description": "Iterate a list or retry until verified"
+				},
+				"human_approval": {
+					"name": "Approval",
+					"description": "Wait for a human decision"
+				}
+			},
+			"config": {
+				"close": "Close",
+				"idLabel": "Node id",
+				"idInvalid": "Start with a letter or digit; then letters, digits, - or _",
+				"agent": {
+					"agent": "Agent",
+					"selectPlaceholder": "Select an agent",
+					"promptTemplate": "Prompt template",
+					"maxRetries": "Max retries"
+				},
+				"condition": {
+					"branches": "Branches",
+					"label": "Label",
+					"rule": "Rule",
+					"addBranch": "Add branch",
+					"removeBranch": "Remove branch",
+					"model": "Judge model",
+					"modelPlaceholder": "Run default model",
+					"modelHint": "Only needed for llm_judge rules; empty inherits the run default."
+				},
+				"loop": {
+					"mode": "Mode",
+					"modeIterate": "Iterate a list",
+					"modeRetryUntil": "Retry until verified",
+					"listTemplate": "List template",
+					"itemTemplate": "Item template",
+					"parallel": "Parallel",
+					"parallelNote": "v1: sequential",
+					"bodyAgent": "Body agent",
+					"verifierPrompt": "Verifier prompt",
+					"verifierPlaceholder": "Accept the result only if…",
+					"maxAttempts": "Max attempts"
+				},
+				"approval": {
+					"approvers": "Approvers",
+					"approverPlaceholder": "User id",
+					"approversHint": "Empty means the run owner decides.",
+					"removeApprover": "Remove approver",
+					"timeoutHours": "Timeout (hours)",
+					"timeoutBranch": "On timeout",
+					"timeoutFail": "Fail the run",
+					"timeoutCustom": "Follow a branch",
+					"customBranchPlaceholder": "Branch label",
+					"timeoutBranchHint": "A custom branch must match an outgoing edge's label."
+				}
+			}
 		},
 		"runs": {
 			"title": "Workflow Runs",
