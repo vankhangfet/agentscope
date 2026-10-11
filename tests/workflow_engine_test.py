@@ -1518,14 +1518,14 @@ class JudgeAgentFactoryTest(IsolatedAsyncioTestCase):
 
         branch_one = await boot_one(
             USER,
-            "workflow-branch-judge",
+            "workflow-branch-judge-v2",
             "prompt one",
         )
         # A second call in the same boot (fresh or stale prompt — the
         # agent is shared) must not mint another row either.
         branch_two = await boot_one(
             USER,
-            "workflow-branch-judge",
+            "workflow-branch-judge-v2",
             "prompt two",
         )
         self.assertEqual(branch_one, branch_two)
@@ -1539,11 +1539,11 @@ class JudgeAgentFactoryTest(IsolatedAsyncioTestCase):
         boot_two = await make_judge_agent_factory(storage)
         branch_three = await boot_two(
             USER,
-            "workflow-branch-judge",
+            "workflow-branch-judge-v2",
             "prompt three",
         )
         self.assertEqual(branch_three, branch_one)
 
         names = [agent.data.name for agent in await storage.list_agents(USER)]
-        self.assertEqual(names.count("workflow-branch-judge"), 1)
+        self.assertEqual(names.count("workflow-branch-judge-v2"), 1)
         self.assertEqual(names.count("workflow-verifier"), 1)

@@ -558,7 +558,11 @@ class AsyncSQLAlchemyStorage(StorageBase):
             .all()
         )
         for sch in schedules:
-            data = (sch.payload or {}).get("data")
+            # ``payload`` is JSON-typed but a hand-edited row can hold
+            # a non-dict shape; peek defensively so a drifted row
+            # cannot break the cascade (mirrors the sweep's tolerance).
+            payload = sch.payload if isinstance(sch.payload, dict) else {}
+            data = payload.get("data")
             if (
                 isinstance(data, dict)
                 and data.get("workflow_id") is not None

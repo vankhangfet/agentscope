@@ -266,7 +266,10 @@ class NodeHandlers:
             )
         judge_id = await self._judge_agent_factory(
             user_id,
-            "workflow-branch-judge",
+            # ``-v2`` retires judges persisted before the prompt went
+            # workflow-agnostic (older rows baked one workflow's label
+            # list into the system prompt and are never re-minted).
+            "workflow-branch-judge-v2",
             # Generic on purpose: the factory reuses this agent across
             # workflows (and across process boots), so the label list
             # must ride the user message, never the system prompt.

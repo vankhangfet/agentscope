@@ -601,7 +601,7 @@ class NodeHandlersTest(IsolatedAsyncioTestCase):
         self.assertEqual(output, {"branch": "yes"})
         self.assertEqual(len(self.judge.calls), 1)
         _, name, system_prompt = self.judge.calls[0]
-        self.assertEqual(name, "workflow-branch-judge")
+        self.assertEqual(name, "workflow-branch-judge-v2")
         # The label list and the specific instruction ride the user
         # message, not the system prompt, so the judge agent stays
         # generic and can be reused across workflows and boots.
