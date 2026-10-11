@@ -19,13 +19,19 @@ const NO_RUNS: WorkflowRun[] = [];
  *
  * @param filters - Optional `workflow_id` / `status` filters; they are
  *   part of the query key, so each filtered view caches separately.
+ * @param options - Optional `refetchInterval` (react-query's), for
+ *   views that poll while any visible run is still live.
  * @returns The runs (newest first) plus their count and `loading` /
  *   `error` flags.
  */
-export function useWorkflowRuns(filters?: ListRunsParams) {
+export function useWorkflowRuns(
+	filters?: ListRunsParams,
+	options?: { refetchInterval?: number | false },
+) {
 	const { data, isPending, error } = useQuery({
 		queryKey: [...WORKFLOW_RUNS_KEY, filters ?? {}],
 		queryFn: () => listRuns(filters),
+		refetchInterval: options?.refetchInterval,
 	});
 
 	return {

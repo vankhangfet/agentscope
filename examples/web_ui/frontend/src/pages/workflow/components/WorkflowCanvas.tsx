@@ -17,28 +17,10 @@ import {
 import * as React from 'react';
 
 import { nodeTypes, type NodeKind } from './nodeTypes';
+import { THEME_VARS } from './rfTheme';
 
 /** MIME type the palette writes on drag start (React Flow's dnd pattern). */
 export const PALETTE_MIME = 'application/reactflow';
-
-/**
- * House-theme overrides for React Flow's CSS variables, so the edges,
- * controls, handles and dot grid follow the light/dark tokens instead
- * of the library's fixed greys.
- */
-const THEME_VARS = {
-	'--xy-edge-stroke': 'var(--muted-foreground)',
-	'--xy-edge-stroke-selected': 'var(--primary)',
-	'--xy-edge-label-color': 'var(--foreground)',
-	'--xy-edge-label-background-color': 'var(--card)',
-	'--xy-controls-button-background-color': 'var(--card)',
-	'--xy-controls-button-background-color-hover': 'var(--accent)',
-	'--xy-controls-button-border-color': 'var(--border)',
-	'--xy-controls-button-color': 'var(--foreground)',
-	'--xy-background-pattern-dots-color': 'var(--border)',
-	'--xy-handle-background-color': 'var(--primary)',
-	'--xy-handle-border-color': 'var(--card)',
-} as React.CSSProperties;
 
 interface WorkflowCanvasProps {
 	nodes: Node[];

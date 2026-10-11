@@ -660,9 +660,62 @@
 				}
 			}
 		},
+		"status": {
+			"PENDING": "等待中",
+			"RUNNING": "运行中",
+			"WAITING_HUMAN": "等待审批",
+			"SUCCEEDED": "已成功",
+			"FAILED": "已失败",
+			"CANCELLED": "已取消"
+		},
 		"runs": {
 			"title": "工作流运行",
-			"comingSoon": "运行视图即将上线。"
+			"subtitle": "全部工作流运行记录，最新在前——点击即可实时跟踪。",
+			"label": "运行",
+			"count_one": "{{count}} 次运行",
+			"count_other": "{{count}} 次运行",
+			"allStatuses": "全部状态",
+			"clearFilter": "清除工作流筛选",
+			"loadFailed": "无法加载运行",
+			"retry": "重试",
+			"emptyTitle": "暂无运行",
+			"emptyDescription": "启动一个工作流后，运行会显示在这里。",
+			"goRun": "前往工作流",
+			"table": {
+				"workflow": "工作流",
+				"status": "状态",
+				"trigger": "触发方式",
+				"created": "创建时间",
+				"finished": "结束时间"
+			}
+		},
+		"runDetail": {
+			"back": "返回运行列表",
+			"loadFailed": "无法加载运行",
+			"trigger": "触发方式",
+			"finished": "结束时间",
+			"cancel": "取消运行",
+			"cancelTitle": "取消此次运行？",
+			"cancelDescription": "仍在运行或等待的节点将被取消。此操作无法撤销。",
+			"cancelConfirm": "取消运行",
+			"cancelled": "运行已取消",
+			"retry": "重试",
+			"restarted": "运行已重新开始",
+			"waitingTitle": "等待您的审批",
+			"waitingNode": "节点 {{id}} 正在等待人工决策。",
+			"notePlaceholder": "备注（可选）",
+			"approve": "批准",
+			"reject": "驳回",
+			"approved": "已批准——运行继续",
+			"rejected": "已驳回——运行停止",
+			"output": {
+				"noSelection": "在图上选择一个节点，查看其运行状态和输出。",
+				"title": "输出",
+				"noOutput": "暂无输出。",
+				"attempts_one": "{{count}} 次尝试",
+				"attempts_other": "{{count}} 次尝试",
+				"copy": "复制输出"
+			}
 		},
 		"approvals": {
 			"title": "审批",

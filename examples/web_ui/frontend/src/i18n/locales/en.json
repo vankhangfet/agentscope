@@ -660,9 +660,62 @@
 				}
 			}
 		},
+		"status": {
+			"PENDING": "Pending",
+			"RUNNING": "Running",
+			"WAITING_HUMAN": "Waiting for approval",
+			"SUCCEEDED": "Succeeded",
+			"FAILED": "Failed",
+			"CANCELLED": "Cancelled"
+		},
 		"runs": {
 			"title": "Workflow Runs",
-			"comingSoon": "The runs view is coming soon."
+			"subtitle": "Every run of your workflows, newest first — open one to follow it live.",
+			"label": "Runs",
+			"count_one": "{{count}} run",
+			"count_other": "{{count}} runs",
+			"allStatuses": "All statuses",
+			"clearFilter": "Clear workflow filter",
+			"loadFailed": "Couldn't load runs",
+			"retry": "Retry",
+			"emptyTitle": "No runs",
+			"emptyDescription": "Start a workflow to see its runs here.",
+			"goRun": "Go to workflows",
+			"table": {
+				"workflow": "Workflow",
+				"status": "Status",
+				"trigger": "Trigger",
+				"created": "Created",
+				"finished": "Finished"
+			}
+		},
+		"runDetail": {
+			"back": "Back to runs",
+			"loadFailed": "Couldn't load the run",
+			"trigger": "Trigger",
+			"finished": "Finished",
+			"cancel": "Cancel run",
+			"cancelTitle": "Cancel this run?",
+			"cancelDescription": "Nodes still running or waiting will be cancelled. This cannot be undone.",
+			"cancelConfirm": "Cancel run",
+			"cancelled": "Run cancelled",
+			"retry": "Retry",
+			"restarted": "Run restarted",
+			"waitingTitle": "Waiting for your approval",
+			"waitingNode": "Node {{id}} is parked for a human verdict.",
+			"notePlaceholder": "Note (optional)",
+			"approve": "Approve",
+			"reject": "Reject",
+			"approved": "Approved — the run continues",
+			"rejected": "Rejected — the run stops",
+			"output": {
+				"noSelection": "Select a node on the graph to see its run state and output.",
+				"title": "Output",
+				"noOutput": "No output yet.",
+				"attempts_one": "{{count}} attempt",
+				"attempts_other": "{{count}} attempts",
+				"copy": "Copy output"
+			}
 		},
 		"approvals": {
 			"title": "Approvals",

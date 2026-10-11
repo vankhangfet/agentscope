@@ -22,7 +22,8 @@ import { SetupPage } from '@/pages/setup';
 import { WorkflowPage } from '@/pages/workflow';
 import WorkflowApprovalsPage from '@/pages/workflow/approvals';
 import WorkflowBuilderPage from '@/pages/workflow/builder';
-import WorkflowRunsPage from '@/pages/workflow/runs';
+import { WorkflowRunDetailPage } from '@/pages/workflow/runDetail';
+import { WorkflowRunsPage } from '@/pages/workflow/runs';
 
 function SetupPageRoute() {
 	const navigate = useNavigate();
@@ -69,8 +70,7 @@ const router = createBrowserRouter([
 						element: <WorkflowBuilderPage />,
 					},
 					{ path: '/workflow/runs', element: <WorkflowRunsPage /> },
-					// Task 5 splits run detail onto its own view under :runId.
-					{ path: '/workflow/runs/:runId', element: <WorkflowRunsPage /> },
+					{ path: '/workflow/runs/:runId', element: <WorkflowRunDetailPage /> },
 					{ path: '/workflow/approvals', element: <WorkflowApprovalsPage /> },
 				],
 			},

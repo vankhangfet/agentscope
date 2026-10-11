@@ -6,7 +6,7 @@ import type { Node, NodeProps } from '@xyflow/react';
 import { Handle, Position } from '@xyflow/react';
 import { Bot, GitBranch, Repeat, UserCheck } from 'lucide-react';
 
-import type { AgentView, NodeConfig } from '@/api';
+import type { AgentView, NodeConfig, RunStatus } from '@/api';
 import { cn } from '@/lib/utils';
 
 /** The four node kinds the palette can add (RF node type == config type). */
@@ -20,6 +20,11 @@ export type NodeKind = 'agent' | 'condition' | 'loop' | 'human_approval';
 export type BuilderNodeData = {
 	config: NodeConfig;
 	agents: AgentView[];
+	/**
+	 * The node's run status — set ONLY by the read-only run view; the
+	 * builder passes none and the decoration below stays dormant.
+	 */
+	status?: RunStatus;
 };
 
 type BuilderNode<K extends NodeKind = NodeKind> = Node<
@@ -51,6 +56,30 @@ const HANDLE_STYLE: React.CSSProperties = {
 };
 
 /**
+ * Run-view decoration (dormant while `status` is undefined): border
+ * tint and a header status dot per status — green SUCCEEDED, blue
+ * RUNNING (dot pulses), amber WAITING_HUMAN, red FAILED, grey
+ * CANCELLED/PENDING (PENDING keeps the plain builder border).
+ */
+const STATUS_BORDER: Record<RunStatus, string> = {
+	PENDING: '',
+	RUNNING: 'border-blue-500/70 dark:border-blue-400/70',
+	WAITING_HUMAN: 'border-amber-500/70 dark:border-amber-400/70',
+	SUCCEEDED: 'border-green-500/70 dark:border-green-500/70',
+	FAILED: 'border-red-500/70 dark:border-red-400/70',
+	CANCELLED: 'border-muted-foreground/40',
+};
+
+const STATUS_DOT: Record<RunStatus, string> = {
+	PENDING: 'bg-muted-foreground/50',
+	RUNNING: 'animate-pulse bg-blue-500 dark:bg-blue-400',
+	WAITING_HUMAN: 'bg-amber-500 dark:bg-amber-400',
+	SUCCEEDED: 'bg-green-500 dark:bg-green-500',
+	FAILED: 'bg-red-500 dark:bg-red-400',
+	CANCELLED: 'bg-muted-foreground/60',
+};
+
+/**
  * Geometry for the labeled source handles: the card header occupies a
  * fixed 40px (8 padding + 16 title + 2 gap + 14 summary), then each
  * label row is a fixed 16px starting after a 6px gap. A branch handle
@@ -66,12 +95,15 @@ function NodeCard({
 	id,
 	config,
 	selected,
+	status,
 	summary,
 	branchLabels,
 }: {
 	id: string;
 	config: NodeConfig;
 	selected: boolean;
+	/** Run status; undefined in the builder (no decoration). */
+	status?: RunStatus;
 	summary: string;
 	branchLabels: string[];
 }) {
@@ -85,6 +117,8 @@ function NodeCard({
 		<div
 			className={cn(
 				'relative w-52 rounded-lg border bg-card px-3 py-2 shadow-sm',
+				status != null && STATUS_BORDER[status],
+				status === 'RUNNING' && 'ring-2 ring-blue-500/25',
 				selected && `ring-2 ${meta.ring}`,
 			)}
 		>
@@ -95,6 +129,12 @@ function NodeCard({
 			<div className="flex h-4 items-center gap-1.5 pl-1.5">
 				<Icon className="size-3.5 shrink-0 text-muted-foreground" />
 				<span className="truncate text-xs font-semibold">{id}</span>
+				{status != null && (
+					<span
+						className={cn('ml-auto size-2 shrink-0 rounded-full', STATUS_DOT[status])}
+						title={status}
+					/>
+				)}
 			</div>
 			<div className="mt-0.5 h-3.5 truncate pl-1.5 text-[10px] leading-3.5 text-muted-foreground">
 				{summary}
@@ -135,13 +175,14 @@ function agentName(agents: AgentView[], agentId: string): string {
 }
 
 function AgentNode(props: NodeProps<BuilderNode<'agent'>>) {
-	const { config, agents } = props.data;
+	const { config, agents, status } = props.data;
 	const hint = config.prompt_template?.trim() || '{{input}}';
 	return (
 		<NodeCard
 			id={props.id}
 			config={config}
 			selected={props.selected}
+			status={status}
 			summary={`${agentName(agents, config.agent_id)} · ${hint}`}
 			branchLabels={[]}
 		/>
@@ -149,12 +190,13 @@ function AgentNode(props: NodeProps<BuilderNode<'agent'>>) {
 }
 
 function ConditionNode(props: NodeProps<BuilderNode<'condition'>>) {
-	const { config } = props.data;
+	const { config, status } = props.data;
 	return (
 		<NodeCard
 			id={props.id}
 			config={config}
 			selected={props.selected}
+			status={status}
 			summary={config.branches.map((b) => b.label).join(' · ') || '—'}
 			branchLabels={config.branches.map((b) => b.label)}
 		/>
@@ -162,7 +204,7 @@ function ConditionNode(props: NodeProps<BuilderNode<'condition'>>) {
 }
 
 function LoopNode(props: NodeProps<BuilderNode<'loop'>>) {
-	const { config, agents } = props.data;
+	const { config, agents, status } = props.data;
 	const summary =
 		config.mode === 'iterate'
 			? `iterate · ${config.list_template?.trim() || 'list'}`
@@ -172,6 +214,7 @@ function LoopNode(props: NodeProps<BuilderNode<'loop'>>) {
 			id={props.id}
 			config={config}
 			selected={props.selected}
+			status={status}
 			summary={summary}
 			branchLabels={[]}
 		/>
@@ -179,7 +222,7 @@ function LoopNode(props: NodeProps<BuilderNode<'loop'>>) {
 }
 
 function ApprovalNode(props: NodeProps<BuilderNode<'human_approval'>>) {
-	const { config } = props.data;
+	const { config, status } = props.data;
 	const approvers = config.approvers ?? [];
 	const who = approvers.length > 0 ? `${approvers.length} approvers` : 'owner';
 	const hours = config.timeout_hours ?? 24;
@@ -196,6 +239,7 @@ function ApprovalNode(props: NodeProps<BuilderNode<'human_approval'>>) {
 			id={props.id}
 			config={config}
 			selected={props.selected}
+			status={status}
 			summary={summary}
 			branchLabels={labels}
 		/>
