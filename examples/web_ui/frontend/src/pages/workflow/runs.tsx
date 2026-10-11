@@ -4,6 +4,7 @@ import { History, Play, X } from 'lucide-react';
 import * as React from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 
+import { RUN_TERMINAL_STATUSES } from './components/runReadiness';
 import { RunStatusBadge } from './components/RunStatusBadge';
 import type { ListRunsParams, RunStatus, WorkflowRun } from '@/api';
 import { Badge } from '@/components/ui/badge';
@@ -49,9 +50,6 @@ const STATUSES: RunStatus[] = [
 	'FAILED',
 	'CANCELLED',
 ];
-
-/** Mirror of the backend's `_RUN_TERMINAL_STATUSES`. */
-const TERMINAL: ReadonlySet<RunStatus> = new Set(['SUCCEEDED', 'FAILED', 'CANCELLED']);
 
 /** One run row: workflow, status chip, trigger, timestamps. Anywhere
  * on the row opens the live detail view. */
@@ -116,7 +114,7 @@ export function WorkflowRunsPage() {
 		refetchInterval: poll ? 5000 : false,
 	});
 	React.useEffect(() => {
-		setPoll(runs.some((run) => !TERMINAL.has(run.data.status)));
+		setPoll(runs.some((run) => !RUN_TERMINAL_STATUSES.includes(run.data.status)));
 	}, [runs]);
 
 	// The chip shows the workflow's current name; runs carry only a
@@ -222,7 +220,7 @@ export function WorkflowRunsPage() {
 								<Button variant="outline" size="sm" asChild>
 									<Link to="/workflow">
 										<Play />
-										{t('workflow.runs.goRun')}
+										{t('workflow.runs.goWorkflows')}
 									</Link>
 								</Button>
 							</EmptyContent>

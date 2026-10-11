@@ -345,6 +345,10 @@ function Builder() {
 			} else {
 				const res = await createWorkflow.mutateAsync(data);
 				toast.success(t('workflow.builder.saved'));
+				// The editor already holds the just-saved graph; mark the
+				// new id as seeded before navigating so the workflow query
+				// the route change triggers cannot re-seed over it.
+				seededFor.current = res.workflow_id;
 				navigate(`/workflow/builder/${res.workflow_id}`, { replace: true });
 			}
 		} catch {

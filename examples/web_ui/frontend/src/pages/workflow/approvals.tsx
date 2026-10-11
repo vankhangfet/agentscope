@@ -5,6 +5,7 @@ import * as React from 'react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 
+import { parkedNodes } from './components/runReadiness';
 import { RunStatusBadge } from './components/RunStatusBadge';
 import type { ApproveVerdict, WorkflowRun, WorkflowRunData } from '@/api';
 import { Badge } from '@/components/ui/badge';
@@ -189,13 +190,7 @@ export default function WorkflowApprovalsPage() {
 
 	// One card per parked node (a run can wait on several), not per run.
 	const cards = runs.flatMap((run) =>
-		run.data.status === 'WAITING_HUMAN'
-			? run.data.graph.nodes
-					.filter(
-						(node) => run.data.node_states[node.id]?.status === 'WAITING_HUMAN',
-					)
-					.map((node) => ({ run, nodeId: node.id }))
-			: [],
+		parkedNodes(run.data).map(({ nodeId }) => ({ run, nodeId })),
 	);
 
 	const handleRetry = () =>

@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 
 import { NodeOutputPanel } from './components/NodeOutputPanel';
 import { RunGraphView } from './components/RunGraphView';
+import { parkedNodes, RUN_TERMINAL_STATUSES } from './components/runReadiness';
 import { RunStatusBadge } from './components/RunStatusBadge';
 import type {
 	ApproveVerdict,
@@ -33,10 +34,6 @@ import { Spinner } from '@/components/ui/spinner';
 import { useAgents } from '@/hooks/useAgents';
 import { useApproveRun, useCancelRun, useRetryRun } from '@/hooks/useWorkflowRuns';
 import { useTranslation } from '@/i18n/useI18n';
-
-/** Run statuses no further transition can follow — mirror of the
- * backend's `_RUN_TERMINAL_STATUSES` (a retry is a fresh dispatch). */
-const TERMINAL: ReadonlySet<RunStatus> = new Set(['SUCCEEDED', 'FAILED', 'CANCELLED']);
 
 /** Cache key for the polling fallback's `getRun` snapshot. */
 const RUN_KEY = (runId: string) => ['workflow-run', runId];
@@ -157,14 +154,14 @@ export function WorkflowRunDetailPage() {
 						? { ...prev, status: event.status, error: event.error ?? null }
 						: prev,
 				);
-				if (TERMINAL.has(event.status)) refetch();
+				if (RUN_TERMINAL_STATUSES.includes(event.status)) refetch();
 			},
 			onClose: () => {
 				if (disposed || controller.signal.aborted) return;
 				// The server ends terminal runs itself; a close on a
 				// live run is a drop (or a just-retried run) — snapshot
 				// to fill the gap, then reopen with backoff, 5s cap.
-				if (TERMINAL.has(statusRef.current)) return;
+				if (RUN_TERMINAL_STATUSES.includes(statusRef.current)) return;
 				refetch();
 				const delay = Math.min(1000 * 2 ** attempt, 5000);
 				attempt += 1;
@@ -191,7 +188,9 @@ export function WorkflowRunDetailPage() {
 		queryFn: () => getRun(runId),
 		enabled: mode === 'polling',
 		refetchInterval: (query) =>
-			TERMINAL.has(query.state.data?.data.status ?? 'PENDING') ? false : 3000,
+			RUN_TERMINAL_STATUSES.includes(query.state.data?.data.status ?? 'PENDING')
+				? false
+				: 3000,
 	});
 	React.useEffect(() => {
 		if (mode !== 'polling' || !poll.data) return;
@@ -210,12 +209,10 @@ export function WorkflowRunDetailPage() {
 		setData(res.data);
 	};
 
-	const waitingNode =
-		data?.status === 'WAITING_HUMAN'
-			? (data.graph.nodes.find(
-					(node) => data.node_states[node.id]?.status === 'WAITING_HUMAN',
-				) ?? null)
-			: null;
+	// The first parked node (graph order) drives the header's approve
+	// block — one prompt even when several nodes wait; parallel approvals
+	// are answered individually on the approvals page.
+	const waiting = data ? (parkedNodes(data)[0] ?? null) : null;
 
 	const selectedNode = data
 		? (data.graph.nodes.find((node) => node.id === selectedNodeId) ?? null)
@@ -227,12 +224,12 @@ export function WorkflowRunDetailPage() {
 			: null;
 
 	const handleVerdict = async (verdict: ApproveVerdict) => {
-		if (!waitingNode) return;
+		if (!waiting) return;
 		try {
 			const res = await approve.mutateAsync({
 				runId,
 				body: {
-					node_id: waitingNode.id,
+					node_id: waiting.nodeId,
 					verdict,
 					note: note.trim() || undefined,
 				},
@@ -353,7 +350,7 @@ export function WorkflowRunDetailPage() {
 					)}
 				</header>
 
-				{data.status === 'WAITING_HUMAN' && waitingNode && (
+				{waiting && (
 					<section className="border-b bg-amber-500/5 px-4 py-3">
 						<div className="flex flex-wrap items-center justify-between gap-2">
 							<span className="text-xs font-semibold text-amber-600 dark:text-amber-400">
@@ -389,7 +386,7 @@ export function WorkflowRunDetailPage() {
 							</div>
 						</div>
 						<p className="mt-1 text-xs text-muted-foreground">
-							{t('workflow.runDetail.waitingNode', { id: waitingNode.id })}
+							{t('workflow.runDetail.waitingNode', { id: waiting.nodeId })}
 						</p>
 					</section>
 				)}

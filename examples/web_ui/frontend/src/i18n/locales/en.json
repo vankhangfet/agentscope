@@ -734,7 +734,7 @@
 			"retry": "Retry",
 			"emptyTitle": "No runs",
 			"emptyDescription": "Start a workflow to see its runs here.",
-			"goRun": "Go to workflows",
+			"goWorkflows": "Go to workflows",
 			"table": {
 				"workflow": "Workflow",
 				"status": "Status",
@@ -776,6 +776,8 @@
 			"subtitle": "Runs parked at an approval node — answer here to let them continue.",
 			"count_one": "{{count}} waiting",
 			"count_other": "{{count}} waiting",
+			"chipLabel_one": "Approvals: {{count}} waiting",
+			"chipLabel_other": "Approvals: {{count}} waiting",
 			"loadFailed": "Couldn't load approvals",
 			"retry": "Retry",
 			"emptyTitle": "All clear",

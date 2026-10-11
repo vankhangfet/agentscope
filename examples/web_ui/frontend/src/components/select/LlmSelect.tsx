@@ -140,17 +140,19 @@ export function LlmSelect({
 						);
 					})
 				)}
-				<DropdownMenuSeparator />
+				{(allowClear || onAddCredential) && <DropdownMenuSeparator />}
 				{allowClear && (
 					<DropdownMenuItem onSelect={() => onChange?.(null)} disabled={!value}>
 						<Ban className="size-4" />
 						<span>{clearLabel ?? t('llm-select.clear')}</span>
 					</DropdownMenuItem>
 				)}
-				<DropdownMenuItem onSelect={onAddCredential}>
-					<PlusCircle className="size-4" />
-					<span>{t('llm-select.addCredential')}</span>
-				</DropdownMenuItem>
+				{onAddCredential && (
+					<DropdownMenuItem onSelect={onAddCredential}>
+						<PlusCircle className="size-4" />
+						<span>{t('llm-select.addCredential')}</span>
+					</DropdownMenuItem>
+				)}
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);
