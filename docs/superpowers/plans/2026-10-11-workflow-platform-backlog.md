@@ -57,4 +57,4 @@ Tests: loop killed via injected failing runner → re-dispatched (attempts obser
 
 ## Closing note (fill at Task 4)
 
-- Flake hunt outcome: _TBD_
+- Flake hunt outcome: **IDENTIFIED AND FIXED** — `RunStreamE2ETest::test_live_run_streams_events_until_terminal` asserted the state frame read WAITING_HUMAN, but subscription-live ≠ snapshot-taken: an approve racing the snapshot yields a truthful RUNNING frame. Production behavior correct (storage is truth, events converge); assertion now accepts both orderings with rationale (commit `39cb3c13`; 5× suite re-runs green). Hunt evidence: 1 failure in 10+ full-battery runs, caught on hunt-run 1 of 6.
