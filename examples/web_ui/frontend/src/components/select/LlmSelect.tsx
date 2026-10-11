@@ -1,7 +1,16 @@
-import { ChevronDown, PlusCircle, Ban } from 'lucide-react';
+import { ChevronDown, PlusCircle, Ban, SquarePen } from 'lucide-react';
+import { useState } from 'react';
 
 import type { ChatModelConfig } from '@/api';
 import { Button } from '@/components/ui/button';
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from '@/components/ui/dialog';
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -15,6 +24,7 @@ import {
 	DropdownMenuSubTrigger,
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { Input } from '@/components/ui/input';
 import { useAvailableModels } from '@/hooks/useAvailableModels';
 import { useTranslation } from '@/i18n/useI18n.ts';
 import { cn } from '@/lib/utils';
@@ -51,6 +61,16 @@ export function LlmSelect({
 }: Props) {
 	const { groups, loading } = useAvailableModels();
 	const { t } = useTranslation();
+	// The credential the "custom model name" dialog is targeting, and
+	// the free-text name typed into it — null/'' when the dialog is
+	// closed. Lets users of OpenAI-compatible endpoints pick a model
+	// the provider's built-in card list doesn't name.
+	const [customTarget, setCustomTarget] = useState<{
+		type: string;
+		credentialId: string;
+		label: string;
+	} | null>(null);
+	const [customName, setCustomName] = useState('');
 	// Credentials whose model list failed to load come back with an empty
 	// `models` array; drop them so they don't render empty submenus
 	const groupEntries = Object.entries(groups)
@@ -62,6 +82,25 @@ export function LlmSelect({
 		onChange?.({ type, credential_id: credentialId, model, parameters: {} });
 	};
 
+	const confirmCustom = () => {
+		if (!customTarget || !customName.trim()) return;
+		handleSelect(customTarget.type, customTarget.credentialId, customName.trim());
+		setCustomTarget(null);
+		setCustomName('');
+	};
+
+	const customModelItem = (type: string, credentialId: string, label: string) => (
+		<DropdownMenuItem
+			onSelect={() => {
+				setCustomTarget({ type, credentialId, label });
+				setCustomName('');
+			}}
+		>
+			<SquarePen className="size-4" />
+			<span>{t('llm-select.customModel')}</span>
+		</DropdownMenuItem>
+	);
+
 	const displayLabel = value?.model
 		? value.model
 		: loading
@@ -69,8 +108,9 @@ export function LlmSelect({
 			: (placeholder ?? t('llm-select.placeholder'));
 
 	return (
-		<DropdownMenu>
-			<DropdownMenuTrigger asChild>
+		<>
+			<DropdownMenu>
+				<DropdownMenuTrigger asChild>
 				<Button
 					variant="outline"
 					size="sm"
@@ -97,20 +137,30 @@ export function LlmSelect({
 									{type.replace(/_credential$/, '')}
 								</DropdownMenuLabel>
 								{isSingle
-									? usable[0].models.map((m) => (
-											<DropdownMenuItem
-												key={m.name}
-												onSelect={() =>
-													handleSelect(
-														type,
-														usable[0].credential.id,
-														m.name,
-													)
-												}
-											>
-												{m.name}
-											</DropdownMenuItem>
-										))
+									? (
+											<>
+												{usable[0].models.map((m) => (
+													<DropdownMenuItem
+														key={m.name}
+														onSelect={() =>
+															handleSelect(
+																type,
+																usable[0].credential.id,
+																m.name,
+															)
+														}
+													>
+														{m.name}
+													</DropdownMenuItem>
+												))}
+												<DropdownMenuSeparator />
+												{customModelItem(
+													type,
+													usable[0].credential.id,
+													credentialLabel(usable[0].credential),
+												)}
+											</>
+										)
 									: usable.map(({ credential, models }) => (
 											<DropdownMenuSub key={credential.id}>
 												<DropdownMenuSubTrigger>
@@ -132,6 +182,12 @@ export function LlmSelect({
 																{m.label}
 															</DropdownMenuItem>
 														))}
+														<DropdownMenuSeparator />
+														{customModelItem(
+															type,
+															credential.id,
+															credentialLabel(credential),
+														)}
 													</DropdownMenuSubContent>
 												</DropdownMenuPortal>
 											</DropdownMenuSub>
@@ -155,5 +211,47 @@ export function LlmSelect({
 				)}
 			</DropdownMenuContent>
 		</DropdownMenu>
+		<Dialog
+			open={customTarget !== null}
+			onOpenChange={(open) => {
+				if (!open) {
+					setCustomTarget(null);
+					setCustomName('');
+				}
+			}}
+		>
+			<DialogContent className="sm:max-w-sm">
+				<DialogHeader>
+					<DialogTitle>{t('llm-select.customModelTitle')}</DialogTitle>
+					<DialogDescription>
+						{t('llm-select.customModelDescription', {
+							credential: customTarget?.label ?? '',
+						})}
+					</DialogDescription>
+				</DialogHeader>
+				<Input
+					aria-label={t('llm-select.customModelTitle')}
+					placeholder={t('llm-select.customModelPlaceholder')}
+					value={customName}
+					onChange={(e) => setCustomName(e.target.value)}
+					onKeyDown={(e) => {
+						if (e.key === 'Enter') {
+							e.preventDefault();
+							confirmCustom();
+						}
+					}}
+					autoFocus
+				/>
+				<DialogFooter>
+					<Button variant="outline" onClick={() => setCustomTarget(null)}>
+						{t('common.cancel')}
+					</Button>
+					<Button onClick={confirmCustom} disabled={!customName.trim()}>
+						{t('common.confirm')}
+					</Button>
+				</DialogFooter>
+			</DialogContent>
+		</Dialog>
+		</>
 	);
 }

@@ -472,6 +472,10 @@
 		},
 		"addCredential": "Add Credential",
 		"clear": "Clear selection",
+		"customModel": "Custom model name…",
+		"customModelTitle": "Custom model",
+		"customModelDescription": "Model name sent to {{credential}} — any name the endpoint serves (e.g. an OpenAI-compatible deployment).",
+		"customModelPlaceholder": "e.g. my-finetuned-model",
 		"noFallback": "No fallback"
 	},
 	"chat-model-field": {

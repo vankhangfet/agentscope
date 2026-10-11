@@ -472,6 +472,10 @@
 		},
 		"addCredential": "添加凭证",
 		"clear": "清除选择",
+		"customModel": "自定义模型名称…",
+		"customModelTitle": "自定义模型",
+		"customModelDescription": "发送到 {{credential}} 的模型名称 — 端点提供的任意名称均可（例如 OpenAI 兼容部署）。",
+		"customModelPlaceholder": "例如 my-finetuned-model",
 		"noFallback": "无兜底模型"
 	},
 	"chat-model-field": {
