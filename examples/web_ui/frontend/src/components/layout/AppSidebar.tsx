@@ -11,7 +11,7 @@ import {
 	Workflow,
 } from 'lucide-react';
 import { useOnborda } from 'onborda';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 
 import AgentScope from '@/assets/images/agentscope_mono.svg?react';
 import MCPSvg from '@/assets/images/mcp.svg?react';
@@ -27,6 +27,7 @@ import {
 	SidebarMenuButton,
 	SidebarMenuItem,
 } from '@/components/ui/sidebar';
+import { useWorkflowRuns } from '@/hooks/useWorkflowRuns';
 import i18n from '@/i18n';
 import { useTranslation } from '@/i18n/useI18n';
 
@@ -51,6 +52,23 @@ export function AppSidebar() {
 		const next = i18n.language.startsWith('zh') ? 'en' : 'zh';
 		i18n.changeLanguage(next);
 	};
+
+	// Pending approval count for the workflow icon's chip: how many
+	// nodes across all parked runs await a verdict. Shares the query
+	// with the approvals page (react-query dedupes by key), so no
+	// polling here — the page's 15s interval and every invalidation
+	// (a verdict anywhere also invalidates the runs key) keep it fresh.
+	const { runs } = useWorkflowRuns({ status: 'WAITING_HUMAN' });
+	const pendingApprovals = runs.reduce(
+		(total, run) =>
+			run.data.status === 'WAITING_HUMAN'
+				? total +
+					run.data.graph.nodes.filter(
+						(node) => run.data.node_states[node.id]?.status === 'WAITING_HUMAN',
+					).length
+				: total,
+		0,
+	);
 
 	return (
 		<Sidebar
@@ -100,6 +118,21 @@ export function AppSidebar() {
 								>
 									<Workflow />
 								</SidebarMenuButton>
+								{/* The chip overlays the button's corner on the
+								 * item (its relative anchor — the button clips
+								 * overflow) and is itself the one nav entry to
+								 * the approvals inbox. */}
+								{pendingApprovals > 0 && (
+									<Link
+										to="/workflow/approvals"
+										aria-label={t('workflow.approvals.count', {
+											count: pendingApprovals,
+										})}
+										className="absolute top-0 right-0 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[9px] leading-none font-semibold text-white tabular-nums hover:bg-amber-600"
+									>
+										{pendingApprovals > 9 ? '9+' : pendingApprovals}
+									</Link>
+								)}
 							</SidebarMenuItem>
 							<SidebarMenuItem>
 								<SidebarMenuButton

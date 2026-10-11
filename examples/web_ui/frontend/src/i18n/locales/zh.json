@@ -719,7 +719,24 @@
 		},
 		"approvals": {
 			"title": "审批",
-			"comingSoon": "审批收件箱即将上线。"
+			"subtitle": "停在审批节点上的运行——在这里答复，让它们继续。",
+			"count_one": "{{count}} 项待审批",
+			"count_other": "{{count}} 项待审批",
+			"loadFailed": "无法加载审批",
+			"retry": "重试",
+			"emptyTitle": "全部处理完毕",
+			"emptyDescription": "没有等待您审批的事项。",
+			"goRuns": "查看运行",
+			"workflowLabel": "工作流",
+			"noteLabel": "节点 {{id}} 的备注（可选）",
+			"notePlaceholder": "备注（可选）",
+			"approve": "批准",
+			"reject": "驳回",
+			"approved": "已批准——运行继续",
+			"rejected": "已驳回——运行停止",
+			"approvedByYou": "您已批准",
+			"rejectedByYou": "您已驳回",
+			"noPreview": "暂无输出预览——完整上下文可在运行详情中查看。"
 		}
 	},
 	"model-parameters": {

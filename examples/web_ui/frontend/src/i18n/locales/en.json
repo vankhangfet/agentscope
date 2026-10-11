@@ -719,7 +719,24 @@
 		},
 		"approvals": {
 			"title": "Approvals",
-			"comingSoon": "The approvals inbox is coming soon."
+			"subtitle": "Runs parked at an approval node — answer here to let them continue.",
+			"count_one": "{{count}} waiting",
+			"count_other": "{{count}} waiting",
+			"loadFailed": "Couldn't load approvals",
+			"retry": "Retry",
+			"emptyTitle": "All clear",
+			"emptyDescription": "Nothing awaits your approval.",
+			"goRuns": "View runs",
+			"workflowLabel": "Workflow",
+			"noteLabel": "Note for node {{id}} (optional)",
+			"notePlaceholder": "Note (optional)",
+			"approve": "Approve",
+			"reject": "Reject",
+			"approved": "Approved — the run continues",
+			"rejected": "Rejected — the run stops",
+			"approvedByYou": "Approved by you",
+			"rejectedByYou": "Rejected by you",
+			"noPreview": "No output preview — the full context is available in the run view."
 		}
 	},
 	"model-parameters": {
