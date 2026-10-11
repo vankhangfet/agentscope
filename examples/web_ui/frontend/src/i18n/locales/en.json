@@ -38,6 +38,7 @@
 		"switchToEn": "Switch to English",
 		"team": "Team",
 		"uploading": "Uploading",
+		"workflow": "Workflows",
 		"leader": "Leader",
 		"time": "Time",
 		"yes": "Yes",
@@ -554,6 +555,42 @@
 		"today": "Today",
 		"tuesday": "Tue",
 		"wednesday": "Wed"
+	},
+	"workflow": {
+		"subtitle": "Build multi-step agent workflows and follow their runs",
+		"list": {
+			"label": "Workflows",
+			"new": "New workflow",
+			"create": "Create workflow",
+			"emptyTitle": "No workflows",
+			"emptyDescription": "Create your first workflow to automate multi-step agent tasks.",
+			"loadFailed": "Couldn't load workflows",
+			"retry": "Retry",
+			"nodeCount_one": "{{count}} node",
+			"nodeCount_other": "{{count}} nodes",
+			"version": "v{{version}}",
+			"deleteEntity": "workflow",
+			"duplicated": "Workflow duplicated",
+			"actions": {
+				"menu": "More actions",
+				"edit": "Edit",
+				"duplicate": "Duplicate",
+				"viewRuns": "View runs",
+				"delete": "Delete"
+			}
+		},
+		"builder": {
+			"title": "Workflow Builder",
+			"comingSoon": "The canvas builder is coming soon."
+		},
+		"runs": {
+			"title": "Workflow Runs",
+			"comingSoon": "The runs view is coming soon."
+		},
+		"approvals": {
+			"title": "Approvals",
+			"comingSoon": "The approvals inbox is coming soon."
+		}
 	},
 	"model-parameters": {
 		"title": "Model Parameters",

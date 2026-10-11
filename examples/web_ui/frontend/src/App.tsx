@@ -19,6 +19,10 @@ import { CredentialPage } from '@/pages/credential';
 import { KnowledgePage } from '@/pages/knowledge';
 import { SchedulePage } from '@/pages/schedule';
 import { SetupPage } from '@/pages/setup';
+import { WorkflowPage } from '@/pages/workflow';
+import WorkflowApprovalsPage from '@/pages/workflow/approvals';
+import WorkflowBuilderPage from '@/pages/workflow/builder';
+import WorkflowRunsPage from '@/pages/workflow/runs';
 
 function SetupPageRoute() {
 	const navigate = useNavigate();
@@ -58,6 +62,16 @@ const router = createBrowserRouter([
 					{ path: '/skill/:hubId', element: <SkillHubPage /> },
 					{ path: '/knowledge', element: <KnowledgePage /> },
 					{ path: '/knowledge/:kbId', element: <KnowledgePage /> },
+					{ path: '/workflow', element: <WorkflowPage /> },
+					{
+						// No id = a brand-new workflow; the builder prompts for a name.
+						path: '/workflow/builder/:workflowId?',
+						element: <WorkflowBuilderPage />,
+					},
+					{ path: '/workflow/runs', element: <WorkflowRunsPage /> },
+					// Task 5 splits run detail onto its own view under :runId.
+					{ path: '/workflow/runs/:runId', element: <WorkflowRunsPage /> },
+					{ path: '/workflow/approvals', element: <WorkflowApprovalsPage /> },
 				],
 			},
 		],

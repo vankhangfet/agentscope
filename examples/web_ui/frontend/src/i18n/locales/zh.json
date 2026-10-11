@@ -38,6 +38,7 @@
 		"switchToEn": "Switch to English",
 		"team": "团队",
 		"uploading": "上传中",
+		"workflow": "工作流",
 		"leader": "队长",
 		"time": "时间",
 		"yes": "是",
@@ -554,6 +555,42 @@
 		"today": "今天",
 		"tuesday": "周二",
 		"wednesday": "周三"
+	},
+	"workflow": {
+		"subtitle": "构建多步骤智能体工作流并跟踪其运行",
+		"list": {
+			"label": "工作流",
+			"new": "新建工作流",
+			"create": "创建工作流",
+			"emptyTitle": "暂无工作流",
+			"emptyDescription": "创建第一个工作流，自动化多步骤智能体任务。",
+			"loadFailed": "无法加载工作流",
+			"retry": "重试",
+			"nodeCount_one": "{{count}} 个节点",
+			"nodeCount_other": "{{count}} 个节点",
+			"version": "v{{version}}",
+			"deleteEntity": "工作流",
+			"duplicated": "工作流已复制",
+			"actions": {
+				"menu": "更多操作",
+				"edit": "编辑",
+				"duplicate": "创建副本",
+				"viewRuns": "查看运行",
+				"delete": "删除"
+			}
+		},
+		"builder": {
+			"title": "工作流编辑器",
+			"comingSoon": "画布编辑器即将上线。"
+		},
+		"runs": {
+			"title": "工作流运行",
+			"comingSoon": "运行视图即将上线。"
+		},
+		"approvals": {
+			"title": "审批",
+			"comingSoon": "审批收件箱即将上线。"
+		}
 	},
 	"model-parameters": {
 		"title": "模型参数",

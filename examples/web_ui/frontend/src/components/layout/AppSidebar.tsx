@@ -8,6 +8,7 @@ import {
 	Languages,
 	LibraryBig,
 	UserRound,
+	Workflow,
 } from 'lucide-react';
 import { useOnborda } from 'onborda';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -86,6 +87,18 @@ export function AppSidebar() {
 									className="justify-center"
 								>
 									<Calendars />
+								</SidebarMenuButton>
+							</SidebarMenuItem>
+							<SidebarMenuItem>
+								<SidebarMenuButton
+									tooltip={{ children: t('common.workflow'), hidden: false }}
+									// Stays lit while on a builder / runs / approvals
+									// subroute, mirroring the MCP entry.
+									isActive={location.pathname.startsWith('/workflow')}
+									onClick={() => navigate('/workflow')}
+									className="justify-center"
+								>
+									<Workflow />
 								</SidebarMenuButton>
 							</SidebarMenuItem>
 							<SidebarMenuItem>
