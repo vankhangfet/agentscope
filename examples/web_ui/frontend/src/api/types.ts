@@ -52,6 +52,15 @@ export interface ChatConfig {
 	context_config: ContextConfig;
 	react_config: ReActConfig;
 	invite_config: InviteConfig;
+	/**
+	 * Agent-level default model. `null` means "no override" — the
+	 * session's own `chat_model_config` is in charge.
+	 */
+	chat_model_config: ChatModelConfig | null;
+	/** Workspace MCP tool names the agent may use. */
+	tools: string[];
+	/** Enable long-term memory across this agent's sessions. */
+	memory: boolean;
 }
 
 /** Partial text-mode settings accepted by create and update requests. */
@@ -78,6 +87,15 @@ export interface CreateAgentRequest {
 	name: string;
 	system_prompt?: string;
 	chat_config?: ChatConfigInput;
+	/**
+	 * Agent-level default model, folded into `chat_config` by the
+	 * backend. `null`/omitted keeps the session-level config in charge.
+	 */
+	chat_model_config?: ChatModelConfig | null;
+	/** Workspace MCP tool names the agent may use. */
+	tools?: string[];
+	/** Enable long-term memory for the agent. */
+	memory?: boolean;
 	/** @deprecated Use `chat_config.context_config`. */
 	context_config?: ContextConfig;
 	/** @deprecated Use `chat_config.react_config`. */
@@ -94,6 +112,17 @@ export interface UpdateAgentRequest {
 	name?: string;
 	system_prompt?: string;
 	chat_config?: ChatConfigInput;
+	/**
+	 * Agent-level default model, folded into `chat_config` by the
+	 * backend. PATCH semantics: omit → unchanged, `null` → clear back to
+	 * session-level inheritance, value → replace. (Clearing must use this
+	 * flat field — the `chat_config` nested-merge drops `null`s.)
+	 */
+	chat_model_config?: ChatModelConfig | null;
+	/** New tool list. Replaces the stored list wholesale. */
+	tools?: string[];
+	/** Enable or disable long-term memory. */
+	memory?: boolean;
 	/** @deprecated Use `chat_config.context_config`. */
 	context_config?: ContextConfig;
 	/** @deprecated Use `chat_config.react_config`. */
@@ -415,6 +444,8 @@ export interface JSONSchemaProperty {
 	const?: unknown;
 	anyOf?: Array<{ type: string }>;
 	enum?: unknown[];
+	/** Item schema for `type: 'array'` properties. */
+	items?: JSONSchemaProperty;
 	title?: string;
 	writeOnly?: boolean;
 	minimum?: number;

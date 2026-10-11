@@ -1,25 +1,45 @@
 import { useTranslation } from 'react-i18next';
 
-import type { AgentSchemaV2Response, JSONSchema, JSONSchemaProperty } from '@/api';
+import type {
+	AgentSchemaV2Response,
+	ChatModelConfig,
+	JSONSchema,
+	JSONSchemaProperty,
+} from '@/api';
+import { ArrayField } from '@/components/form/ArrayField';
+import { ChatModelField } from '@/components/form/ChatModelField';
 import { SchemaForm, type SchemaFormValue } from '@/components/form/SchemaForm';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
+	Field,
+	FieldContent,
 	FieldDescription,
 	FieldGroup,
+	FieldLabel,
 	FieldLegend,
 	FieldSeparator,
 	FieldSet,
 } from '@/components/ui/field';
 
-export type AgentSection = 'identity' | 'context_config' | 'react_config' | 'invite_config';
+export type AgentSection =
+	| 'identity'
+	| 'template'
+	| 'context_config'
+	| 'react_config'
+	| 'invite_config';
+
+/** Anything a section record may hold — SchemaForm scalars plus the
+ * richer values of the hand-placed template widgets. */
+export type AgentFormValue = SchemaFormValue | string[] | ChatModelConfig;
 
 export type AgentFormValues = {
-	[K in AgentSection]: Record<string, SchemaFormValue>;
+	[K in AgentSection]: Record<string, AgentFormValue>;
 };
 
 interface Props {
 	schema: AgentSchemaV2Response;
 	values: AgentFormValues;
-	onChange: (section: AgentSection, key: string, value: SchemaFormValue) => void;
+	onChange: (section: AgentSection, key: string, value: AgentFormValue) => void;
 }
 
 /**
@@ -29,22 +49,35 @@ interface Props {
  * / textarea field on `AgentData` shows up in the identity fieldset
  * automatically; the sections below live one level down, inside the
  * `chat_config` mode block.
+ *
+ * "template" is the exception: its three `chat_config` properties
+ * (`chat_model_config` / `tools` / `memory`) are hand-placed dedicated
+ * widgets — a nested object and an array, which SchemaForm cannot render
+ * meaningfully — so its slice only feeds defaults, never SchemaForm.
  */
-const NESTED_SECTIONS: Array<{ key: Exclude<AgentSection, 'identity'>; i18n: string }> = [
+const NESTED_SECTIONS: Array<{
+	key: Exclude<AgentSection, 'identity' | 'template'>;
+	i18n: string;
+}> = [
 	{ key: 'context_config', i18n: 'context-config' },
 	{ key: 'react_config', i18n: 'react-config' },
 	{ key: 'invite_config', i18n: 'invite-config' },
 ];
 
+/** `chat_config` properties rendered by the hand-placed template widgets. */
+const TEMPLATE_FIELDS = ['chat_model_config', 'tools', 'memory'] as const;
+
 /** Top-level `AgentData` properties that group one mode's settings. */
 const MODE_BLOCKS = ['chat_config'];
 
 const IDENTITY_I18N = 'identity';
+const TEMPLATE_I18N = 'template';
 
 const toKebab = (s: string) => s.replace(/_/g, '-');
 
 /** Split the `AgentData` schema into the sections the form renders
- * (currently four: `identity` + one per `NESTED_SECTIONS` entry). */
+ * (currently five: `identity`, `template` + one per `NESTED_SECTIONS`
+ * entry). */
 function sliceSchema(root: JSONSchema): Record<AgentSection, JSONSchema> {
 	const props = root.properties ?? {};
 	const chatProps = ((props.chat_config as JSONSchema)?.properties ?? {}) as Record<
@@ -65,8 +98,20 @@ function sliceSchema(root: JSONSchema): Record<AgentSection, JSONSchema> {
 		required: (root.required ?? []).filter((r) => !MODE_BLOCKS.includes(r)),
 	};
 
+	const templateProps: Record<string, JSONSchemaProperty> = {};
+	for (const k of TEMPLATE_FIELDS) {
+		const prop = chatProps[k];
+		if (prop) templateProps[k] = prop;
+	}
+	const template: JSONSchema = {
+		type: 'object',
+		title: 'Agent Template',
+		properties: templateProps,
+	};
+
 	return {
 		identity,
+		template,
 		context_config: (chatProps.context_config as JSONSchema) ?? {
 			type: 'object',
 			properties: {},
@@ -88,6 +133,7 @@ export function AgentFormFields({ schema, values, onChange }: Props) {
 
 	const rows: Array<{ key: AgentSection; i18n: string; sectionSchema: JSONSchema }> = [
 		{ key: 'identity', i18n: IDENTITY_I18N, sectionSchema: sections.identity },
+		{ key: 'template', i18n: TEMPLATE_I18N, sectionSchema: sections.template },
 		...NESTED_SECTIONS.map((s) => ({
 			key: s.key as AgentSection,
 			i18n: s.i18n,
@@ -110,31 +156,80 @@ export function AgentFormFields({ schema, values, onChange }: Props) {
 						<FieldSet>
 							<FieldLegend>{legend}</FieldLegend>
 							{description && <FieldDescription>{description}</FieldDescription>}
-							<SchemaForm
-								schema={sectionSchema}
-								values={values[sectionKey]}
-								onChange={(k, v) => onChange(sectionKey, k, v)}
-								idPrefix={`agent-form-${sectionI18n}`}
-								labelFor={(k, prop) =>
-									t(`agent-form.${sectionI18n}.${toKebab(k)}.label`, {
-										defaultValue: prop.title ?? k.replace(/_/g, ' '),
-									})
-								}
-								placeholderFor={(k, prop) =>
-									t(`agent-form.${sectionI18n}.${toKebab(k)}.placeholder`, {
-										defaultValue: prop.description ?? '',
-									}) || undefined
-								}
-								// Only for fields whose label cannot carry the
-								// whole story on its own — hence no fallback to
-								// `prop.description`, which is English-only and
-								// already serves as the placeholder.
-								descriptionFor={(k) =>
-									t(`agent-form.${sectionI18n}.${toKebab(k)}.description`, {
-										defaultValue: '',
-									}) || undefined
-								}
-							/>
+							{sectionKey === 'template' ? (
+								<>
+									<ChatModelField
+										id="agent-form-template-chat-model"
+										label={t('agent-form.template.chat-model.label')}
+										description={t('agent-form.template.chat-model.description')}
+										value={
+											(values.template.chat_model_config as
+												| ChatModelConfig
+												| null
+												| undefined) ?? null
+										}
+										onChange={(v) => onChange('template', 'chat_model_config', v)}
+									/>
+									<ArrayField
+										id="agent-form-template-tools"
+										label={t('agent-form.template.tools.label')}
+										description={t('agent-form.template.tools.description')}
+										placeholder={t('agent-form.template.tools.placeholder')}
+										value={(values.template.tools as string[] | undefined) ?? []}
+										onChange={(v) => onChange('template', 'tools', v)}
+									/>
+									{/* Mirrors SchemaForm's boolean layout: a described
+									    checkbox stacks label and helper text beside it. */}
+									<Field orientation="horizontal">
+										<Checkbox
+											id="agent-form-template-memory"
+											checked={!!values.template.memory}
+											onCheckedChange={(checked) =>
+												onChange('template', 'memory', !!checked)
+											}
+										/>
+										<FieldContent>
+											<FieldLabel
+												htmlFor="agent-form-template-memory"
+												className="font-normal"
+											>
+												{t('agent-form.template.memory.label')}
+											</FieldLabel>
+											<FieldDescription>
+												{t('agent-form.template.memory.description')}
+											</FieldDescription>
+										</FieldContent>
+									</Field>
+								</>
+							) : (
+								<SchemaForm
+									schema={sectionSchema}
+									// Template records can hold richer values, but a
+									// SchemaForm-rendered section never does.
+									values={values[sectionKey] as Record<string, SchemaFormValue>}
+									onChange={(k, v) => onChange(sectionKey, k, v)}
+									idPrefix={`agent-form-${sectionI18n}`}
+									labelFor={(k, prop) =>
+										t(`agent-form.${sectionI18n}.${toKebab(k)}.label`, {
+											defaultValue: prop.title ?? k.replace(/_/g, ' '),
+										})
+									}
+									placeholderFor={(k, prop) =>
+										t(`agent-form.${sectionI18n}.${toKebab(k)}.placeholder`, {
+											defaultValue: prop.description ?? '',
+										}) || undefined
+									}
+									// Only for fields whose label cannot carry the
+									// whole story on its own — hence no fallback to
+									// `prop.description`, which is English-only and
+									// already serves as the placeholder.
+									descriptionFor={(k) =>
+										t(`agent-form.${sectionI18n}.${toKebab(k)}.description`, {
+											defaultValue: '',
+										}) || undefined
+									}
+								/>
+							)}
 						</FieldSet>
 					</div>
 				);
@@ -146,16 +241,20 @@ export function AgentFormFields({ schema, values, onChange }: Props) {
 /** Build a fresh `AgentFormValues` populated from each section schema's defaults. */
 export function defaultAgentFormValues(schema: AgentSchemaV2Response): AgentFormValues {
 	const sections = sliceSchema(schema.schema);
-	const fromDefaults = (section: JSONSchema): Record<string, SchemaFormValue> => {
-		const out: Record<string, SchemaFormValue> = {};
+	const fromDefaults = (section: JSONSchema): Record<string, AgentFormValue> => {
+		const out: Record<string, AgentFormValue> = {};
 		for (const [k, prop] of Object.entries(section.properties ?? {})) {
 			if (prop.const !== undefined) continue;
-			if (prop.default !== undefined) out[k] = prop.default as SchemaFormValue;
+			if (prop.default !== undefined) out[k] = prop.default as AgentFormValue;
 		}
 		return out;
 	};
 	return {
 		identity: fromDefaults(sections.identity),
+		// `tools` carries no `default` in the schema (Pydantic emits
+		// `default_factory` results without one), so readers fall back to
+		// `[]` at the value sites.
+		template: fromDefaults(sections.template),
 		context_config: fromDefaults(sections.context_config),
 		react_config: fromDefaults(sections.react_config),
 		invite_config: fromDefaults(sections.invite_config),

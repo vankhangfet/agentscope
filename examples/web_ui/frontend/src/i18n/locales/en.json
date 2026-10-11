@@ -180,6 +180,23 @@
 				"label": "System prompt"
 			}
 		},
+		"template": {
+			"legend": "Agent Template",
+			"description": "Defaults this agent starts every session with: model, tools, and memory.",
+			"chat-model": {
+				"label": "Default model",
+				"description": "Overrides the session's model for this agent. Leave empty to follow the session's model."
+			},
+			"tools": {
+				"label": "Tools",
+				"description": "Workspace MCP tool names the agent may use.",
+				"placeholder": "Add a tool name and press Enter"
+			},
+			"memory": {
+				"label": "Long-term memory",
+				"description": "Remember context across this agent's sessions."
+			}
+		},
 		"context-config": {
 			"legend": "Context Config",
 			"description": "Controls how the context window is managed and compressed.",
@@ -444,6 +461,14 @@
 		"addCredential": "Add Credential",
 		"clear": "Clear selection",
 		"noFallback": "No fallback"
+	},
+	"chat-model-field": {
+		"placeholder": "Follow session model"
+	},
+	"array-field": {
+		"add": "Add item…",
+		"empty": "No items yet.",
+		"remove": "Remove {{item}}"
 	},
 	"realtime": {
 		"selectModel": "Voice model",

@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 
 import type { JSONSchema, JSONSchemaProperty } from '@/api';
+import { ArrayField } from '@/components/form/ArrayField';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
 	Field,
@@ -21,7 +22,7 @@ import { Textarea } from '@/components/ui/textarea';
 
 const DEFAULT_SKIP_FIELDS = new Set(['id', 'type']);
 
-export type SchemaFormValue = string | number | boolean | null | undefined;
+export type SchemaFormValue = string | number | boolean | null | undefined | string[];
 
 interface Props {
 	schema: JSONSchema;
@@ -229,6 +230,30 @@ export function SchemaForm({
 					);
 				}
 
+				// `string[]` gets the chips editor. It renders its own Field
+				// (label + description inside), so no `wrap` — horizontal
+				// orientations still lay it out vertically, which a chips
+				// editor needs anyway.
+				if (type === 'array' && (prop.items?.type ?? 'string') === 'string') {
+					return (
+						<ArrayField
+							key={key}
+							id={fieldId}
+							label={label}
+							required={isRequired}
+							description={description}
+							placeholder={placeholder}
+							value={(current as string[] | undefined) ?? []}
+							onChange={(v) => onChange(key, v)}
+						/>
+					);
+				}
+
+				// Residual debt: `type: 'object'` properties (and arrays of
+				// non-strings) still land here as a dead text input — they
+				// need composed widgets (e.g. the credential+model picker in
+				// ChatModelField) rather than a generic renderer, so their
+				// owning forms hand-place those instead.
 				return wrap(
 					<Input
 						id={fieldId}

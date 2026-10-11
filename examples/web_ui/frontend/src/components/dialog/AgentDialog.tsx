@@ -2,14 +2,14 @@ import { CircleAlert, Loader2, PlusCircle } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import type { ContextConfig, InviteConfig, ReActConfig } from '@/api';
+import type { ChatModelConfig, ContextConfig, InviteConfig, ReActConfig } from '@/api';
 import {
 	AgentFormFields,
 	defaultAgentFormValues,
+	type AgentFormValue,
 	type AgentFormValues,
 	type AgentSection,
 } from '@/components/form/AgentFormFields';
-import type { SchemaFormValue } from '@/components/form/SchemaForm';
 import { Alert, AlertDescription } from '@/components/ui/alert.tsx';
 import { Button } from '@/components/ui/button';
 import {
@@ -49,7 +49,7 @@ export function AgentDialog({ onCreated, children }: Props) {
 		}
 	}, [open, schema, values]);
 
-	const handleChange = (section: AgentSection, key: string, value: SchemaFormValue) => {
+	const handleChange = (section: AgentSection, key: string, value: AgentFormValue) => {
 		setErrorMsg('');
 		setValues((prev) =>
 			prev ? { ...prev, [section]: { ...prev[section], [key]: value } } : prev,
@@ -72,6 +72,14 @@ export function AgentDialog({ onCreated, children }: Props) {
 						react_config: values.react_config as unknown as ReActConfig,
 						invite_config: values.invite_config as unknown as InviteConfig,
 					},
+					// Template fields ride as the (non-deprecated) flat
+					// mirror; the backend folds them into `chat_config`.
+					// `null` model = keep the session-level config in charge.
+					chat_model_config:
+						(values.template.chat_model_config as ChatModelConfig | null | undefined) ??
+						null,
+					tools: (values.template.tools as string[] | undefined) ?? [],
+					memory: !!values.template.memory,
 				},
 				{ silent: true },
 			);
