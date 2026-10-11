@@ -289,7 +289,16 @@ class RunStreamE2ETest(IsolatedAsyncioTestCase):
         self.assertTrue(content_type.startswith("text/event-stream"))
         frames = _parse_sse(body)
         self.assertEqual(frames[0][0], "state")
-        self.assertEqual(frames[0][1]["data"]["status"], "WAITING_HUMAN")
+        # The state frame snapshots the run AFTER the subscription goes
+        # live, and this test approves on subscription-live — so the
+        # approve can slip in before the snapshot and the frame then
+        # truthfully reads RUNNING. Storage is the source of truth and
+        # the event frames converge either way; both orderings are
+        # correct stream behavior.
+        self.assertIn(
+            frames[0][1]["data"]["status"],
+            {"WAITING_HUMAN", "RUNNING"},
+        )
         events = [
             (event, data.get("node_id"), data.get("status"))
             for event, data in frames[1:]
