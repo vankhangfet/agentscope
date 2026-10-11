@@ -1,9 +1,9 @@
-import { Trash2 } from 'lucide-react';
+import { Pen, Trash2 } from 'lucide-react';
 import * as React from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { parseCronExpression, getFrequencyLabel } from './schedule-utils';
-import type { ScheduleRecord, SessionRecord } from '@/api';
+import type { ScheduleRecord, SessionRecord, UpdateScheduleRequest } from '@/api';
 import { scheduleApi } from '@/api';
 import { StatusBadge } from '@/components/badge/StatusBadge';
 import { DeleteDialog } from '@/components/dialog/DeleteDialog';
@@ -18,13 +18,21 @@ import {
 } from '@/components/ui/drawer';
 import { Separator } from '@/components/ui/separator';
 import { useAgents } from '@/hooks/useAgents';
+import { useWorkflows } from '@/hooks/useWorkflows';
 import { useTranslation } from '@/i18n/useI18n';
+import { CreateScheduleDialog } from '@/pages/schedule/create-schedule-dialog';
 
 interface ScheduleDetailDrawerProps {
 	schedule: ScheduleRecord | null;
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	onDelete: (scheduleId: string) => Promise<void>;
+	/**
+	 * Parent's schedule update call (usually `useSchedules().update`) —
+	 * also refreshes the parent's list. When provided, the drawer offers
+	 * an Edit action that patches through it.
+	 */
+	onUpdate?: (scheduleId: string, body: UpdateScheduleRequest) => Promise<unknown>;
 }
 
 export function ScheduleDetailDrawer({
@@ -32,11 +40,14 @@ export function ScheduleDetailDrawer({
 	open,
 	onOpenChange,
 	onDelete,
+	onUpdate,
 }: ScheduleDetailDrawerProps) {
 	const { t } = useTranslation();
 	const { agents } = useAgents();
+	const { workflows } = useWorkflows();
 	const navigate = useNavigate();
 	const [openDeleteDialog, setOpenDeleteDialog] = React.useState(false);
+	const [openEditDialog, setOpenEditDialog] = React.useState(false);
 	const [sessions, setSessions] = React.useState<SessionRecord[]>([]);
 	const [sessionsLoading, setSessionsLoading] = React.useState(false);
 
@@ -65,6 +76,11 @@ export function ScheduleDetailDrawer({
 	const parsed = parseCronExpression(data.cron_expression, data.started_at);
 	const agentName =
 		agents.find((a) => a.id === schedule.agent_id)?.data.name ?? schedule.agent_id;
+	// A workflow-target schedule fires workflow runs; the agent id on the
+	// record is an ignored placeholder, so the workflow is what's shown.
+	const isWorkflowTarget = !!data.workflow_id;
+	const workflowName =
+		workflows.find((w) => w.id === data.workflow_id)?.data.name ?? data.workflow_id ?? '';
 
 	const weekdayNames = [
 		t('schedule.sunday'),
@@ -109,23 +125,34 @@ export function ScheduleDetailDrawer({
 			title: t('schedule.end_at'),
 			content: data.ended_at ? new Date(data.ended_at).toLocaleString() : t('common.noData'),
 		},
-		{
-			title: t('common.agent'),
-			content: agentName,
-		},
-		{
-			title: t('schedule.permissionMode'),
-			content: data.permission_mode,
-		},
-		{
-			title: t('schedule.stateful'),
-			content: data.stateful ? t('common.yes') : t('common.no'),
-		},
+		isWorkflowTarget
+			? {
+					title: t('common.workflow'),
+					content: workflowName,
+				}
+			: {
+					title: t('common.agent'),
+					content: agentName,
+				},
+		// Permission mode and stateful are agent-session semantics —
+		// meaningless (and ignored) for workflow-target schedules.
+		...(isWorkflowTarget
+			? []
+			: [
+					{
+						title: t('schedule.permissionMode'),
+						content: data.permission_mode,
+					},
+					{
+						title: t('schedule.stateful'),
+						content: data.stateful ? t('common.yes') : t('common.no'),
+					},
+				]),
 	];
 
 	return (
 		<>
-			<Drawer open={open} onOpenChange={onOpenChange} direction="right">
+			<Drawer open={open} onOpenChange={onOpenChange}>
 				<DrawerContent className="max-h-full h-full min-w-[30rem] ml-auto border-none ring-none! shadow-none!">
 					<DrawerHeader>
 						<DrawerTitle>{data.name}</DrawerTitle>
@@ -190,6 +217,16 @@ export function ScheduleDetailDrawer({
 						</div>
 					</div>
 					<DrawerFooter>
+						{onUpdate && (
+							<Button
+								variant="outline"
+								size="sm"
+								onClick={() => setOpenEditDialog(true)}
+							>
+								<Pen className="size-3" />
+								{t('common.edit')}
+							</Button>
+						)}
 						<Button
 							variant="destructive"
 							size="sm"
@@ -203,6 +240,17 @@ export function ScheduleDetailDrawer({
 						</Button>
 					</DrawerFooter>
 				</DrawerContent>
+
+				{/* Edit patches through the parent's update call, which also
+				    refreshes its schedule list; the drawer closes so it never
+				    shows a stale snapshot of the edited record. */}
+				<CreateScheduleDialog
+					open={openEditDialog}
+					onOpenChange={setOpenEditDialog}
+					schedule={schedule}
+					onUpdated={() => onOpenChange(false)}
+					onUpdate={onUpdate}
+				/>
 			</Drawer>
 
 			<DeleteDialog

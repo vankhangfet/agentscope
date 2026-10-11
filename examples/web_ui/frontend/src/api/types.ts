@@ -808,6 +808,14 @@ export interface ScheduleData {
 	permission_mode: PermissionMode;
 	source: ScheduleSource;
 	source_session_id: string;
+	/**
+	 * Target workflow to run on each fire; when set, the schedule
+	 * starts a workflow run instead of an agent turn (the agent/model
+	 * fields are ignored).
+	 */
+	workflow_id?: string | null;
+	/** Input handed to each workflow run this schedule starts. */
+	run_input?: Record<string, unknown>;
 }
 
 export interface ScheduleRecord extends RecordBase {
@@ -826,6 +834,14 @@ export interface CreateScheduleRequest {
 	enabled?: boolean;
 	stateful?: boolean;
 	permission_mode?: PermissionMode;
+	/**
+	 * Target workflow to run on each fire instead of an agent turn;
+	 * when set, the workflow must exist and the agent/model fields are
+	 * ignored server-side.
+	 */
+	workflow_id?: string;
+	/** Input handed to each workflow run; ignored without `workflow_id`. */
+	run_input?: Record<string, unknown>;
 }
 
 export interface CreateScheduleResponse {
@@ -840,6 +856,14 @@ export interface UpdateScheduleRequest {
 	enabled?: boolean;
 	stateful?: boolean;
 	permission_mode?: PermissionMode;
+	/**
+	 * Retarget the schedule to a workflow. Omit (or send an empty
+	 * string) to keep the current target — there is no way to clear it
+	 * back to an agent turn; delete and recreate the schedule instead.
+	 */
+	workflow_id?: string;
+	/** Replacement input for workflow runs; omit to keep the current value. */
+	run_input?: Record<string, unknown>;
 }
 
 export interface ScheduleListResponse {

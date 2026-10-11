@@ -1,9 +1,10 @@
-import { Pause, Calendar, ArrowRight, Bot, ClipboardClock, BotOff } from 'lucide-react';
+import { Pause, Calendar, ArrowRight, Bot, ClipboardClock, BotOff, Workflow } from 'lucide-react';
 
 import { parseCronExpression, getFrequencyLabel } from './schedule-utils';
 import type { ScheduleRecord } from '@/api';
 import { Badge } from '@/components/ui/badge';
 import { Item, ItemContent, ItemDescription, ItemMedia, ItemTitle } from '@/components/ui/item';
+import { useWorkflows } from '@/hooks/useWorkflows';
 import { useTranslation } from '@/i18n/useI18n';
 
 interface ScheduleCardProps {
@@ -13,12 +14,20 @@ interface ScheduleCardProps {
 
 export function ScheduleCard({ schedule, onClick }: ScheduleCardProps) {
 	const { t } = useTranslation();
+	const { workflows } = useWorkflows();
 	const { data } = schedule;
 	const parsed = parseCronExpression(data.cron_expression, data.started_at);
+	// A workflow-target schedule runs a workflow on each fire — say so,
+	// instead of surfacing the ignored agent id.
+	const workflowName = data.workflow_id
+		? (workflows.find((w) => w.id === data.workflow_id)?.data.name ?? data.workflow_id)
+		: null;
 
 	return (
 		<Item className="cursor-pointer hover:shadow-md" variant="outline" onClick={onClick}>
-			<ItemMedia variant="icon">{data.enabled ? <Bot /> : <BotOff />}</ItemMedia>
+			<ItemMedia variant="icon">
+				{workflowName ? <Workflow /> : data.enabled ? <Bot /> : <BotOff />}
+			</ItemMedia>
 			<ItemContent>
 				<ItemTitle className="font-[550] truncate max-w-full">{data.name}</ItemTitle>
 				<ItemDescription className="flex gap-x-2 items-center text-xs truncate overflow-hidden">
@@ -43,6 +52,12 @@ export function ScheduleCard({ schedule, onClick }: ScheduleCardProps) {
 						<ClipboardClock data-icon="inline-start" />
 						{getFrequencyLabel(parsed, t)}
 					</Badge>
+					{workflowName && (
+						<Badge variant="link">
+							<Workflow data-icon="inline-start" />
+							{workflowName}
+						</Badge>
+					)}
 				</ItemDescription>
 			</ItemContent>
 		</Item>

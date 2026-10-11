@@ -365,6 +365,18 @@
 			"outputs": "Outputs",
 			"legend": "Context and max output are token counts. REASONING marks models that support extended thinking.",
 			"dimensions": "Dimensions"
+		},
+		"test": {
+			"tooltip": "Test connection",
+			"title": "Test connection",
+			"description": "Run one minimal model call with \"{{name}}\" to verify this credential works.",
+			"model": "Model",
+			"modelPlaceholder": "e.g. gpt-4o / qwen-max",
+			"parameters": "Parameters (JSON)",
+			"parametersHint": "Optional parameters for the test call, e.g. {\"max_tokens\": 16}.",
+			"parametersInvalid": "Parameters must be a valid JSON object.",
+			"run": "Test",
+			"running": "Testing…"
 		}
 	},
 	"knowledge": {
@@ -545,6 +557,22 @@
 			"namePlaceholder": "e.g. Daily Report",
 			"title": "Create Schedule"
 		},
+		"editSchedule": {
+			"title": "Edit Schedule",
+			"description": "Update this schedule's timing and settings."
+		},
+		"target": "Target",
+		"targetAgent": "Agent",
+		"targetAgentFixed": "The agent and model of an existing schedule cannot be changed.",
+		"targetWorkflow": "Workflow",
+		"targetWorkflowDesc": "Each fire starts a run of the selected workflow; agent and model settings are ignored.",
+		"targetSelectWorkflow": "Select a workflow",
+		"targetNoWorkflows": "No workflows yet — create one on the Workflows page first.",
+		"targetWorkflowMissing": "Workflow no longer exists",
+		"targetRunInput": "Run input (JSON)",
+		"targetRunInputHint": "JSON object handed to each run the schedule starts.",
+		"targetRunInputInvalid": "Run input must be a valid JSON object.",
+		"targetCannotSwitchBack": "A workflow-target schedule cannot be switched back to an agent — create a new schedule instead.",
 		"deleteSchedule": {
 			"entity": "schedule"
 		},

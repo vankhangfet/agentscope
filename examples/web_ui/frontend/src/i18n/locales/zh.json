@@ -365,6 +365,18 @@
 			"outputs": "输出",
 			"legend": "上下文与最大输出均以 token 计。REASONING 表示模型支持深度思考。",
 			"dimensions": "维度"
+		},
+		"test": {
+			"tooltip": "测试连接",
+			"title": "测试连接",
+			"description": "使用 \"{{name}}\" 发起一次最小模型调用，验证该凭证是否可用。",
+			"model": "模型",
+			"modelPlaceholder": "例如 gpt-4o / qwen-max",
+			"parameters": "参数（JSON）",
+			"parametersHint": "测试调用的可选参数，例如 {\"max_tokens\": 16}。",
+			"parametersInvalid": "参数必须是有效的 JSON 对象。",
+			"run": "测试",
+			"running": "测试中…"
 		}
 	},
 	"knowledge": {
@@ -545,6 +557,22 @@
 			"namePlaceholder": "例如：每日报告",
 			"title": "创建日程"
 		},
+		"editSchedule": {
+			"title": "编辑日程",
+			"description": "更新该日程的触发时间与设置。"
+		},
+		"target": "目标",
+		"targetAgent": "智能体",
+		"targetAgentFixed": "已有日程的智能体与模型无法修改。",
+		"targetWorkflow": "工作流",
+		"targetWorkflowDesc": "每次触发都会启动所选工作流的一次运行；智能体与模型设置将被忽略。",
+		"targetSelectWorkflow": "选择工作流",
+		"targetNoWorkflows": "暂无工作流——请先在“工作流”页面创建。",
+		"targetWorkflowMissing": "工作流已不存在",
+		"targetRunInput": "运行输入（JSON）",
+		"targetRunInputHint": "随每次运行传递的 JSON 对象。",
+		"targetRunInputInvalid": "运行输入必须是有效的 JSON 对象。",
+		"targetCannotSwitchBack": "面向工作流的日程无法切换回智能体目标——请创建新日程。",
 		"deleteSchedule": {
 			"entity": "日程"
 		},

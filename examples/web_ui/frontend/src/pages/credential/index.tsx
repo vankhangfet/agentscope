@@ -1,4 +1,4 @@
-import { Eye, EyeOff, Plus, Trash2, Pen } from 'lucide-react';
+import { Eye, EyeOff, Plus, Trash2, Pen, FlaskConical } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
 
 import { credentialApi, embeddingModelApi, modelApi, ttsModelApi } from '@/api';
@@ -12,6 +12,7 @@ import type {
 import { CreateCredentialDialog } from '@/components/dialog/CreateCredentialDialog';
 import { DeleteDialog } from '@/components/dialog/DeleteDialog';
 import { EditCredentialDialog } from '@/components/dialog/EditCredentialDialog';
+import { TestCredentialDialog } from '@/components/dialog/TestCredentialDialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
@@ -248,6 +249,7 @@ function DetailPanel({ credential, schema, onEdit, onDelete }: DetailPanelProps)
 	const [embeddingModels, setEmbeddingModels] = useState<EmbeddingModelCard[]>([]);
 	const [modelsLoading, setModelsLoading] = useState(false);
 	const [tab, setTab] = useState<ModelTab>('llm');
+	const [testOpen, setTestOpen] = useState(false);
 
 	const type = credential.data.type as string | undefined;
 	const shown = tab === 'llm' ? models : tab === 'tts' ? ttsModels : embeddingModels;
@@ -315,6 +317,17 @@ function DetailPanel({ credential, schema, onEdit, onDelete }: DetailPanelProps)
 					)}
 				</div>
 				<div className="flex items-center gap-x-2 shrink-0">
+					{/* Read-only shared credentials are testable too — the test
+					    endpoint resolves with owner-or-shared semantics. */}
+					<Button
+						size="icon-sm"
+						variant="ghost"
+						className="text-text-tertiary hover:text-foreground"
+						onClick={() => setTestOpen(true)}
+						tooltip={t('credential.test.tooltip')}
+					>
+						<FlaskConical />
+					</Button>
 					<Button
 						size="icon-sm"
 						variant="ghost"
@@ -451,6 +464,15 @@ function DetailPanel({ credential, schema, onEdit, onDelete }: DetailPanelProps)
 					)}
 				</Tabs>
 			</div>
+
+			{/* Test connection — uses the chat models already fetched for
+			    the LLM tab; free-text input when the provider lists none. */}
+			<TestCredentialDialog
+				open={testOpen}
+				onOpenChange={setTestOpen}
+				credential={credential}
+				models={models}
+			/>
 		</div>
 	);
 }

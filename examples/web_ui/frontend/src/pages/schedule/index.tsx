@@ -51,7 +51,7 @@ function expandScheduleToEvents(
 
 export function SchedulePage() {
 	const { t } = useTranslation();
-	const { schedules, remove, refetch } = useSchedules();
+	const { schedules, remove, update, refetch } = useSchedules();
 	const [viewMode, setViewMode] = React.useState<'calendar' | 'list'>('calendar');
 	const [currentDate, setCurrentDate] = React.useState(new Date());
 	const [selectedSchedule, setSelectedSchedule] = React.useState<ScheduleRecord | null>(null);
@@ -129,6 +129,7 @@ export function SchedulePage() {
 				open={!!selectedSchedule}
 				onOpenChange={(open) => !open && setSelectedSchedule(null)}
 				onDelete={remove}
+				onUpdate={update}
 			/>
 
 			<CreateScheduleDialog

@@ -44,6 +44,8 @@ export function ArrayField({
 
 	const add = () => {
 		const item = draft.trim();
+		// Blank and duplicate entries are silently ignored, which also
+		// makes a blur-then-click double commit a no-op the second time.
 		if (item && !value.includes(item)) onChange([...value, item]);
 		setDraft('');
 	};
@@ -92,6 +94,7 @@ export function ArrayField({
 					value={draft}
 					onChange={(e) => setDraft(e.target.value)}
 					onKeyDown={handleKeyDown}
+					onBlur={add}
 					placeholder={placeholder ?? t('array-field.add')}
 				/>
 				<Button

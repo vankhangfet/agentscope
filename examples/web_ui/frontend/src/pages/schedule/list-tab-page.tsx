@@ -48,7 +48,7 @@ function scheduleHasOccurrencesInRange(
 
 export function ListTabPage() {
 	const { t } = useTranslation();
-	const { schedules, loading, remove } = useSchedules();
+	const { schedules, loading, remove, update } = useSchedules();
 	const [selectedSchedule, setSelectedSchedule] = React.useState<ScheduleRecord | null>(null);
 	const [dateRange, setDateRange] = React.useState<DateRange | undefined>(undefined);
 
@@ -135,6 +135,7 @@ export function ListTabPage() {
 				open={!!selectedSchedule}
 				onOpenChange={(open) => !open && setSelectedSchedule(null)}
 				onDelete={remove}
+				onUpdate={update}
 			/>
 		</div>
 	);
