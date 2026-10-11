@@ -231,9 +231,10 @@ class NodeHandlers:
 
         Rules are tried in declaration order; ``llm_judge:`` rules are
         skipped by that first pass. When nothing matches, a generic
-        judge agent — its system prompt only lists the labels — is
-        asked through the user message, which carries the specific
-        instruction plus a JSON dump of the blackboard. When several
+        judge agent is asked through the user message, which carries
+        the label list, the specific instruction and a JSON dump of
+        the blackboard — the agent's system prompt stays
+        workflow-agnostic so it can be shared and reused. When several
         ``llm_judge`` arms exist, the first one's instruction is the
         one asked.
         """
@@ -266,9 +267,12 @@ class NodeHandlers:
         judge_id = await self._judge_agent_factory(
             user_id,
             "workflow-branch-judge",
+            # Generic on purpose: the factory reuses this agent across
+            # workflows (and across process boots), so the label list
+            # must ride the user message, never the system prompt.
             "You are a routing judge for a workflow. Reply with "
-            "exactly one of these branch labels and nothing else: "
-            f"{', '.join(labels)}.",
+            "exactly one of the branch labels the user message lists "
+            "and nothing else.",
         )
         session_id = await self._ensure_session(
             user_id,
@@ -284,7 +288,9 @@ class NodeHandlers:
             UserMsg(
                 name="workflow",
                 content=(
-                    f"{instruction}\n\nBlackboard:\n"
+                    f"{instruction}\n\nReply with exactly one of these "
+                    f"branch labels: {', '.join(labels)}.\n\n"
+                    f"Blackboard:\n"
                     f"{json.dumps(blackboard, ensure_ascii=False)}"
                 ),
             ),

@@ -838,7 +838,9 @@ class RedisStorage(StorageBase):
            message log, schedule-session index, and — if a session leads
            a team — the team).
         2. **Schedules** — every schedule whose ``data.agent_id`` matches
-           is deleted via :meth:`delete_schedule`.
+           is deleted via :meth:`delete_schedule`, except workflow-target
+           schedules (``data.workflow_id`` set): their agent id is an
+           unchecked placeholder, and they must outlive the agent.
         3. **Team back-references (defensive)** — if the caller chose to
            delete the agent directly instead of going through
            :meth:`delete_team`, scan the user's teams and remove the
@@ -869,9 +871,14 @@ class RedisStorage(StorageBase):
         for session in sessions:
             await self.delete_session(user_id, agent_id, session.id)
 
-        # Cascade: schedules owned by this agent
+        # Cascade: schedules owned by this agent. Workflow-target
+        # schedules are skipped: their ``agent_id`` is whatever the
+        # client sent (a placeholder more often than a real id) and
+        # they target a workflow, not this agent.
         schedules = await self.list_schedules(user_id)
         for schedule in schedules:
+            if schedule.data.workflow_id is not None:
+                continue
             if schedule.agent_id == agent_id:
                 await self.delete_schedule(user_id, schedule.id)
 

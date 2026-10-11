@@ -540,6 +540,13 @@ class SessionService:
             await self.delete_session(user_id, agent_id, session.id)
 
         for schedule in await self._storage.list_schedules(user_id):
+            # A workflow-target schedule carries whatever agent_id the
+            # client sent (a placeholder more often than a real id) —
+            # it targets a workflow, not this agent, so it must
+            # survive the cascade. The storage-level cascade below
+            # skips it for the same reason.
+            if schedule.data.workflow_id is not None:
+                continue
             if schedule.agent_id == agent_id:
                 await self.delete_schedule(user_id, schedule.id)
 

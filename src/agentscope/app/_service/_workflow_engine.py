@@ -1299,16 +1299,16 @@ async def make_judge_agent_factory(
     """Build a judge-agent factory bound to *storage*.
 
     The factory ensures a generic judge agent exists once per user per
-    name and then serves its id from cache. The system prompt holds
-    only the label list — the specific instruction always rides the
-    user message — so caching by name is safe. A restarted process
-    upserts a fresh record instead of looking the old one up: judge
-    agents carry no model of their own (the handler passes a
-    session-level one) and judge sessions are run-scoped, so the only
-    cost is one extra agent row per process start.
+    name and then serves its id from cache. The system prompt is
+    workflow-agnostic — the label list / verdict criteria always ride
+    the user message — so an agent minted by an earlier process is
+    still correct. Lookup-first therefore: an existing record with the
+    requested name is reused (a restart no longer mints a fresh row
+    per boot), and only a missing one is upserted.
 
     Args:
-        storage (`StorageBase`): Where judge agents are upserted.
+        storage (`StorageBase`): Where judge agents are looked up and
+            upserted.
 
     Returns:
         `JudgeAgentFactory`: The cached factory.
@@ -1318,16 +1318,21 @@ async def make_judge_agent_factory(
     async def factory(user_id: str, name: str, system_prompt: str) -> str:
         key = (user_id, name)
         if key not in cache:
-            cache[key] = await storage.upsert_agent(
-                user_id,
-                AgentRecord(
-                    user_id=user_id,
-                    data=AgentData(
-                        name=name,
-                        system_prompt=system_prompt,
+            for agent in await storage.list_agents(user_id):
+                if agent.data.name == name:
+                    cache[key] = agent.id
+                    break
+            else:
+                cache[key] = await storage.upsert_agent(
+                    user_id,
+                    AgentRecord(
+                        user_id=user_id,
+                        data=AgentData(
+                            name=name,
+                            system_prompt=system_prompt,
+                        ),
                     ),
-                ),
-            )
+                )
         return cache[key]
 
     return factory

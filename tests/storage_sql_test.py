@@ -21,7 +21,11 @@ from sqlalchemy.dialects import mysql
 from utils import AnyString
 
 from agentscope.app.storage._sql._mappers import _to_record
-from agentscope.app.storage._sql._tables import AgentRow, SessionRow
+from agentscope.app.storage._sql._tables import (
+    AgentRow,
+    SessionRow,
+    WorkflowRunRow,
+)
 from agentscope.app.storage import (
     AgentData,
     AgentNodeConfig,
@@ -358,6 +362,45 @@ class AsyncSQLAlchemyStorageTest(IsolatedAsyncioTestCase):
         )
         self.assertIsNone(
             await self.storage.get_schedule("user-1", schedule.id),
+        )
+
+    async def test_delete_agent_keeps_workflow_target_schedules(
+        self,
+    ) -> None:
+        """A workflow-target schedule survives its placeholder agent.
+
+        Its ``agent_id`` is whatever the client sent — a placeholder
+        more often than a real id — and it targets a workflow, so the
+        agent-deletion cascade must skip it. An agent-target schedule
+        on the same agent still goes.
+        """
+        agent = _agent_record("user-1")
+        await self.storage.upsert_agent("user-1", agent)
+        agent_target = _schedule_record("user-1", agent.id)
+        workflow_target = ScheduleRecord(
+            user_id="user-1",
+            agent_id=agent.id,
+            data=ScheduleData(
+                name="nightly-wf",
+                cron_expression="0 3 * * *",
+                chat_model_config=ChatModelConfig(
+                    type="openai",
+                    credential_id="cred-1",
+                    model="gpt-4o",
+                    parameters={},
+                ),
+                workflow_id="wf-1",
+            ),
+        )
+        await self.storage.upsert_schedule("user-1", agent_target)
+        await self.storage.upsert_schedule("user-1", workflow_target)
+
+        self.assertTrue(await self.storage.delete_agent("user-1", agent.id))
+        self.assertIsNone(
+            await self.storage.get_schedule("user-1", agent_target.id),
+        )
+        self.assertIsNotNone(
+            await self.storage.get_schedule("user-1", workflow_target.id),
         )
 
     async def test_upsert_replaces_in_place_and_keeps_created_at(self) -> None:
@@ -1358,6 +1401,61 @@ class AsyncSQLAlchemyStorageTest(IsolatedAsyncioTestCase):
         self.assertFalse(
             await self.storage.delete_schedule("user-1", s1.id),
         )
+
+    # ------------------------------------------------------------------
+    # Workflow runs
+    # ------------------------------------------------------------------
+
+    async def test_list_active_workflow_runs_skips_poisoned_rows(
+        self,
+    ) -> None:
+        """One schema-drifted active row must not abort the sweep.
+
+        The recovery sweep runs on every boot; a row whose payload is
+        valid JSON but no longer a valid record (schema drift after an
+        upgrade) is warned at and skipped so every healthy active run
+        still resumes.
+        """
+        healthy = WorkflowRunRecord(
+            user_id="user-1",
+            data=WorkflowRunData(
+                workflow_id="wf-1",
+                workflow_version=1,
+                workflow_name="pipeline",
+                graph=WorkflowGraph(
+                    nodes=[
+                        WorkflowNode(
+                            id="a",
+                            config=AgentNodeConfig(agent_id="agent-1"),
+                        ),
+                    ],
+                ),
+                status=RunStatus.RUNNING,
+            ),
+        )
+        await self.storage.upsert_workflow_run("user-1", healthy)
+
+        # The poisoned sibling: inserted at the row layer so the record
+        # model cannot repair it on the way in. Promoted columns are
+        # plausible; the payload is not a WorkflowRunRecord.
+        # pylint: disable=protected-access
+        async with self.storage._session() as sess:
+            sess.add(
+                WorkflowRunRow(
+                    id="run-poison",
+                    created_at=datetime.now(),
+                    updated_at=datetime.now(),
+                    payload={"bad": 1},
+                    user_id="user-1",
+                    workflow_id="wf-1",
+                    status=RunStatus.RUNNING.value,
+                ),
+            )
+            await sess.commit()
+
+        runs = await self.storage.list_active_workflow_runs()
+
+        self.assertEqual([r.id for r in runs], [healthy.id])
 
     # ------------------------------------------------------------------
     # Installed MCPs and skills

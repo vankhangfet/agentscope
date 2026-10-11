@@ -14,7 +14,10 @@ from unittest import IsolatedAsyncioTestCase
 import fakeredis.aioredis
 from fastapi import HTTPException
 
-from agentscope.app._service._workflow_engine import WorkflowEngine
+from agentscope.app._service._workflow_engine import (
+    WorkflowEngine,
+    make_judge_agent_factory,
+)
 from agentscope.app.message_bus import InMemoryMessageBus
 from agentscope.app.storage import (
     AgentChatConfig,
@@ -1501,3 +1504,46 @@ class WorkflowEngineTest(IsolatedAsyncioTestCase):
         self.assertEqual(after.data.status, RunStatus.RUNNING)
         self.assertEqual(self._state(after, "a").status, RunStatus.RUNNING)
         self.assertIsNone(after.data.finished_at)
+
+
+class JudgeAgentFactoryTest(IsolatedAsyncioTestCase):
+    """``make_judge_agent_factory`` reuses judge agents across boots."""
+
+    async def test_lookup_first_within_and_across_boots(self) -> None:
+        """Same (user, name) maps to one agent id, even for a factory
+        built after a restart: the persisted row is found instead of
+        a fresh one being minted per process start."""
+        storage = make_storage()
+        boot_one = await make_judge_agent_factory(storage)
+
+        branch_one = await boot_one(
+            USER,
+            "workflow-branch-judge",
+            "prompt one",
+        )
+        # A second call in the same boot (fresh or stale prompt — the
+        # agent is shared) must not mint another row either.
+        branch_two = await boot_one(
+            USER,
+            "workflow-branch-judge",
+            "prompt two",
+        )
+        self.assertEqual(branch_one, branch_two)
+
+        # A different name is a different agent.
+        verifier = await boot_one(USER, "workflow-verifier", "prompt")
+        self.assertNotEqual(verifier, branch_one)
+
+        # "Second boot": a fresh factory (empty cache) over the same
+        # storage finds the persisted record.
+        boot_two = await make_judge_agent_factory(storage)
+        branch_three = await boot_two(
+            USER,
+            "workflow-branch-judge",
+            "prompt three",
+        )
+        self.assertEqual(branch_three, branch_one)
+
+        names = [agent.data.name for agent in await storage.list_agents(USER)]
+        self.assertEqual(names.count("workflow-branch-judge"), 1)
+        self.assertEqual(names.count("workflow-verifier"), 1)

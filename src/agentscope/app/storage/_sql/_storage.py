@@ -16,6 +16,7 @@ nodes in a distributed deployment regardless of each node's local
 timezone, while staying tz-naive so the plain ``DateTime`` columns
 need no dialect-specific timezone handling.
 """
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, Self
 
@@ -72,6 +73,8 @@ if TYPE_CHECKING:
         AsyncSession,
         async_sessionmaker,
     )
+
+_logger = logging.getLogger(__name__)
 
 
 def _utcnow() -> datetime:
@@ -536,7 +539,12 @@ class AsyncSQLAlchemyStorage(StorageBase):
         for s in sessions:
             await self._delete_session_impl(sess, user_id, agent_id, s.id)
 
-        # Cascade: schedules owned by this agent.
+        # Cascade: schedules owned by this agent. Workflow-target
+        # schedules are skipped: their ``agent_id`` is whatever the
+        # client sent (a placeholder more often than a real id) and
+        # they target a workflow, not this agent. The flag lives in
+        # the payload (it has no promoted column), peeked at directly
+        # so a drifted row cannot break the cascade.
         schedules = (
             (
                 await sess.execute(
@@ -550,6 +558,9 @@ class AsyncSQLAlchemyStorage(StorageBase):
             .all()
         )
         for sch in schedules:
+            data = (sch.payload or {}).get("data")
+            if isinstance(data, dict) and data.get("workflow_id"):
+                continue
             await self._delete_schedule_impl(sess, user_id, sch.id)
 
         # Defensive: scrub the agent from every surviving team roster
@@ -1049,8 +1060,10 @@ class AsyncSQLAlchemyStorage(StorageBase):
     async def delete_agent(self, user_id: str, agent_id: str) -> bool:
         """Delete an agent + cascade sessions, schedules, team refs.
 
-        Mirrors the cascade order of :meth:`RedisStorage.delete_agent`.
-        The whole cascade runs in a **single transaction** (see
+        Mirrors the cascade order of :meth:`RedisStorage.delete_agent`
+        — including the workflow-target schedule exemption (their
+        agent id is an unchecked placeholder, so they outlive the
+        agent). The whole cascade runs in a **single transaction** (see
         :meth:`_delete_agent_impl`) so it is atomic — a mid-cascade
         failure rolls back rather than leaving orphans.
         """
@@ -2347,7 +2360,12 @@ class AsyncSQLAlchemyStorage(StorageBase):
         """Every non-terminal run across all users (recovery sweep).
 
         ``status`` is a promoted column, so the filter runs in the
-        database and terminal rows are never deserialised.
+        database and terminal rows are never deserialised. A row whose
+        payload no longer validates against the record schema
+        (schema drift after an upgrade, hand-edited JSON) is named in
+        a warning and skipped — mirroring the Redis path's
+        self-healing sweep — so one poisoned row cannot abort every
+        boot's recovery.
         """
         from sqlalchemy import select
 
@@ -2358,4 +2376,16 @@ class AsyncSQLAlchemyStorage(StorageBase):
         )
         async with self._session() as sess:
             rows = (await sess.execute(stmt)).scalars().all()
-        return [_to_record(r, WorkflowRunRecord) for r in rows]
+        records: list[WorkflowRunRecord] = []
+        for row in rows:
+            try:
+                records.append(_to_record(row, WorkflowRunRecord))
+            except ValueError as exc:
+                # pydantic's ValidationError (a ValueError): the row is
+                # valid JSON but not a valid record.
+                _logger.warning(
+                    "Skipping unreadable workflow run row %r: %s",
+                    row.id,
+                    exc,
+                )
+        return records

@@ -21,6 +21,7 @@ from contextlib import AsyncExitStack
 from datetime import datetime
 from typing import Any, AsyncGenerator, Literal, Type
 from unittest import IsolatedAsyncioTestCase, TestCase
+from unittest.mock import patch
 
 import fakeredis.aioredis
 import httpx
@@ -32,8 +33,11 @@ from utils import FakeWorkspaceManager
 from agentscope.app import create_app
 from agentscope.app._lifespan import lifespan
 from agentscope.app._manager import SchedulerManager
+from agentscope.app._service import SessionService
 from agentscope.app.message_bus import MessageBusKeys, RedisMessageBus
 from agentscope.app.storage import (
+    AgentData,
+    AgentRecord,
     ChatModelConfig,
     RedisStorage,
     ScheduleData,
@@ -296,6 +300,56 @@ class SchedulerWorkflowFireTest(_SchedulerWorkflowTestBase):
         self.assertEqual(len(sessions), 1)
 
 
+class AgentDeleteKeepsWorkflowSchedulesTest(_SchedulerWorkflowTestBase):
+    """Deleting an agent must not take workflow-target schedules down."""
+
+    async def test_service_delete_agent_spares_workflow_targets(self) -> None:
+        """The service cascade — and the storage cascade it ends with —
+        skips workflow-target schedules even when their agent_id is the
+        deleted agent's real id (a client that pre-filled the form)."""
+        agent = await self.storage.upsert_agent(
+            "u",
+            AgentRecord(user_id="u", data=AgentData(name="victim")),
+        )
+        model = _model_config()
+        agent_target = ScheduleRecord(
+            user_id="u",
+            agent_id=agent,
+            data=ScheduleData(
+                name="daily",
+                cron_expression="0 9 * * *",
+                started_at=datetime(2025, 1, 1),
+                chat_model_config=model,
+            ),
+        )
+        workflow_target = ScheduleRecord(
+            user_id="u",
+            agent_id=agent,
+            data=ScheduleData(
+                name="nightly-wf",
+                cron_expression="0 3 * * *",
+                started_at=datetime(2025, 1, 1),
+                chat_model_config=model,
+                workflow_id="wf-1",
+            ),
+        )
+        await self.storage.upsert_schedule("u", agent_target)
+        await self.storage.upsert_schedule("u", workflow_target)
+
+        service = SessionService(
+            storage=self.storage,
+            message_bus=self.bus,
+        )
+        self.assertTrue(await service.delete_agent("u", agent))
+
+        self.assertIsNone(
+            await self.storage.get_schedule("u", agent_target.id),
+        )
+        self.assertIsNotNone(
+            await self.storage.get_schedule("u", workflow_target.id),
+        )
+
+
 # --------------------------------------------------------------- router
 
 class ScheduleRouterWorkflowTest(TestCase):
@@ -467,6 +521,45 @@ class ScheduleRouterWorkflowTest(TestCase):
             self._stored()[0]["data"]["workflow_id"],
             self._workflow_id,
         )
+
+
+class SchedulerStartOrderTest(TestCase):
+    """The scheduler's timers start only after the workflow starter is
+    wired — no workflow-target cron can fire into the "no starter"
+    skip window during boot."""
+
+    def test_starter_is_set_before_the_timers_start(self) -> None:
+        """``set_workflow_starter`` precedes the stack entry that
+        starts APScheduler and the reconcile loops."""
+        events: list[str] = []
+        real_enter = SchedulerManager.__aenter__
+        real_set = SchedulerManager.set_workflow_starter
+
+        async def enter(self: SchedulerManager) -> SchedulerManager:
+            events.append("start")
+            return await real_enter(self)
+
+        def set_starter(self: SchedulerManager, starter: Any) -> None:
+            events.append("setter")
+            real_set(self, starter)
+
+        with tempfile.TemporaryDirectory() as workdir, patch.object(
+            SchedulerManager,
+            "__aenter__",
+            enter,
+        ), patch.object(SchedulerManager, "set_workflow_starter", set_starter):
+            storage, bus = _fake_backends()
+            with TestClient(
+                create_app(
+                    storage=storage,
+                    message_bus=bus,
+                    workspace_manager=LocalWorkspaceManager(workdir),
+                    enable_index_worker=False,
+                ),
+            ):
+                pass
+
+        self.assertEqual(events, ["setter", "start"])
 
 
 # ------------------------------------------------------------------ e2e

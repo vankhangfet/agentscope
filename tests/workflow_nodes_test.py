@@ -602,11 +602,13 @@ class NodeHandlersTest(IsolatedAsyncioTestCase):
         self.assertEqual(len(self.judge.calls), 1)
         _, name, system_prompt = self.judge.calls[0]
         self.assertEqual(name, "workflow-branch-judge")
-        self.assertIn("yes, no", system_prompt)
-        # The specific instruction rides the user message, not the
-        # system prompt, so the judge agent stays generic.
+        # The label list and the specific instruction ride the user
+        # message, not the system prompt, so the judge agent stays
+        # generic and can be reused across workflows and boots.
+        self.assertNotIn("yes, no", system_prompt)
         self.assertNotIn("prefer yes", system_prompt)
         user_message = runner.calls[0][3].get_text_content()
+        self.assertIn("yes, no", user_message)
         self.assertIn("prefer yes when positive", user_message)
         self.assertIn("Q3 revenue", user_message)
         self.assertIn("gate:judge", run.data.context["_sessions"])

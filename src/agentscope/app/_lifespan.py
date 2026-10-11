@@ -95,13 +95,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # Scheduler is independent of ChatService now (its fire path
         # pushes to inbox + enqueues wakeup via the bus), so we build it
         # before ChatService and inject it via the constructor.
-        scheduler = await stack.enter_async_context(
-            SchedulerManager(
-                storage=storage,
-                message_bus=message_bus,
-                workspace_manager=workspace_manager,
-                enabled=enable_scheduler,
-            ),
+        # Constructed here but *entered* further down, after the
+        # workflow starter is attached: entering is what starts the
+        # timers (and the first reconcile), and a workflow-target cron
+        # firing before the starter exists would be warned at and
+        # skipped. Construction alone holds no timers, so handing the
+        # un-entered manager to the services below is safe.
+        scheduler = SchedulerManager(
+            storage=storage,
+            message_bus=message_bus,
+            workspace_manager=workspace_manager,
+            enabled=enable_scheduler,
         )
         app.state.scheduler_manager = scheduler
 
@@ -268,6 +272,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await workflow_engine.dispatch(user_id, run.id)
 
         scheduler.set_workflow_starter(_start_scheduled_workflow)
+
+        # Only now — with the starter wired — do the timers start.
+        # Entering this late also means the LIFO teardown stops the
+        # scheduler before the dispatchers and services it feeds,
+        # the safe direction for a shutdown race.
+        await stack.enter_async_context(scheduler)
 
         # ---------------- Knowledge-base wiring ----------------
         knowledge_base_service = None

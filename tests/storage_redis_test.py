@@ -183,6 +183,56 @@ class TestAgent(IsolatedAsyncioTestCase):
         result = await self.storage.delete_agent(self.user_id, "no-such-id")
         self.assertFalse(result)
 
+    async def test_delete_keeps_workflow_target_schedules(self) -> None:
+        """A workflow-target schedule outlives its placeholder agent.
+
+        Its ``agent_id`` is whatever the client sent — sometimes a
+        real agent's id — but it targets a workflow, so the cascade
+        must skip it while taking the agent-target schedule down.
+        """
+        record = make_agent_record(self.user_id)
+        await self.storage.upsert_agent(self.user_id, record)
+        model = ChatModelConfig(
+            type="openai",
+            credential_id="cred-1",
+            model="gpt-4",
+            parameters={},
+        )
+        agent_target = ScheduleRecord(
+            user_id=self.user_id,
+            agent_id=record.id,
+            data=ScheduleData(
+                name="daily",
+                cron_expression="0 9 * * *",
+                chat_model_config=model,
+            ),
+        )
+        workflow_target = ScheduleRecord(
+            user_id=self.user_id,
+            agent_id=record.id,
+            data=ScheduleData(
+                name="nightly-wf",
+                cron_expression="0 3 * * *",
+                chat_model_config=model,
+                workflow_id="wf-1",
+            ),
+        )
+        await self.storage.upsert_schedule(self.user_id, agent_target)
+        await self.storage.upsert_schedule(self.user_id, workflow_target)
+
+        result = await self.storage.delete_agent(self.user_id, record.id)
+
+        self.assertTrue(result)
+        self.assertIsNone(
+            await self.storage.get_schedule(self.user_id, agent_target.id),
+        )
+        self.assertIsNotNone(
+            await self.storage.get_schedule(
+                self.user_id,
+                workflow_target.id,
+            ),
+        )
+
     async def test_user_isolation(self) -> None:
         """Verify different users cannot see each other's records."""
         await self.storage.upsert_agent("user-A", make_agent_record("user-A"))
