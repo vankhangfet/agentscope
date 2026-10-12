@@ -12,6 +12,8 @@ from agentscope.app.channel import (
     DingTalkChannel,
     DiscordChannel,
     FeishuChannel,
+    MSTeamsChannel,
+    TelegramChannel,
 )
 from agentscope.app.hub import ClawSkillHub, GitHubMCPHub
 from agentscope.app.message_bus import InMemoryMessageBus
@@ -161,6 +163,8 @@ so anything you want them to see MUST be sent through `TeamSay`.""",
         DingTalkChannel,
         DiscordChannel,
         FeishuChannel,
+        MSTeamsChannel,
+        TelegramChannel,
     ],
 )
 
