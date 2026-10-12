@@ -42,6 +42,12 @@
 - Teams 2-way (Azure Bot Framework) — Approach B backlog: bind arbitrary sessions to a Teams channel so lifecycle dispatcher streams replies automatically.
 - Teams Adaptive Cards (MessageCard is the universally-rendered format).
 
+### Backlog from Task 1's review
+
+- Telegram: honor `parameters.retry_after` on getUpdates flood waits + backoff + park "failed" after sustained failure (Discord gives up after 2).
+- Telegram: undeliverable DataBlocks log at debug — raise to warning.
+- Telegram: `list_bot_chats`/`chat_kind`/`chat_name` families (management UI + context tailoring).
+
 ## Plan (4 tasks, branch `telegram-msteams-channels`)
 
 1. **TelegramChannel** — TDD: unit tests over a fake httpx transport (getUpdates pagination/offset, allowed filter, chunked sendMessage, error-retry loop, cancel) + `send_response` accumulation (reuse the suite patterns from `tests/channel_*_test.py` — read them first). Gate: new suite + channel regression suites.
