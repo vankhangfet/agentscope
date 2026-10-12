@@ -131,7 +131,6 @@ class CustomProviderModelResolutionTest(IsolatedAsyncioTestCase):
 
 
 
-
 class CustomProviderRouterTest(IsolatedAsyncioTestCase):
     """Create via HTTP, then list models per credential."""
 
@@ -212,6 +211,22 @@ class CustomProviderRouterTest(IsolatedAsyncioTestCase):
             headers={"X-User-ID": "bob"},
         )
         self.assertEqual(listed.status_code, 404)
+
+    def test_custom_names_do_not_leak_under_other_providers(
+        self,
+    ) -> None:
+        credential_id = self._create()
+        listed = self._client.get(
+            "/model/",
+            params={
+                "provider": "openai_credential",
+                "credential_id": credential_id,
+            },
+            headers=HEADERS,
+        )
+        self.assertEqual(listed.status_code, 200)
+        names = [m["name"] for m in listed.json()["models"]]
+        self.assertNotIn("my-llama-8b", names)
 
     def test_unknown_credential_id_is_404(self) -> None:
         listed = self._client.get(

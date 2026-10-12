@@ -46,7 +46,9 @@ class CustomProviderCredential(CredentialBase):
 
     organization: str | None = Field(
         default=None,
-        description="Optional organization header, when the endpoint uses one.",
+        description=(
+            "Optional organization header, when the endpoint uses one."
+        ),
     )
     """The organization header (``OpenAIChatModel`` reads it)."""
 
