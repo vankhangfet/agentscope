@@ -53,9 +53,12 @@ class _FakeTelegramHTTP:
         self.gets: list[tuple[str, dict[str, Any]]] = []
         self.posts: list[tuple[str, dict[str, Any]]] = []
         self.closed = False
+        self.on_get: Callable[[], None] | None = None
 
     async def get(self, url: str, **kwargs: Any) -> _FakeResponse:
         self.gets.append((url, kwargs))
+        if self.on_get is not None:
+            self.on_get()
         if self._failures > 0:
             self._failures -= 1
             raise RuntimeError("telegram is down")
@@ -75,6 +78,15 @@ class _FakeTelegramHTTP:
 def _page(*updates: dict[str, Any]) -> dict[str, Any]:
     """One getUpdates response page."""
     return {"ok": True, "result": list(updates)}
+
+
+def _rejected_page() -> dict[str, Any]:
+    """One getUpdates rejection body (e.g. a revoked token)."""
+    return {
+        "ok": False,
+        "error_code": 401,
+        "description": "Unauthorized",
+    }
 
 
 def _update(
@@ -348,6 +360,34 @@ class TelegramListenerTest(IsolatedAsyncioTestCase):
         self.assertIn("retrying", "\n".join(captured.output))
         self.assertEqual(channel.status.state, "stopped")
         self.assertTrue(http.closed)
+
+    async def test_rejected_api_body_is_retried(self) -> None:
+        channel = _channel()
+        http = _FakeTelegramHTTP(
+            pages=[_rejected_page(), _page(_update(1))],
+        )
+        states: list[str] = []
+        http.on_get = lambda: states.append(channel.status.state)
+        received: list[ChannelEvent] = []
+        with (
+            patch.object(telegram_module, "_ERROR_RETRY_SECONDS", 0),
+            self.assertLogs("as", level="WARNING") as captured,
+        ):
+            task = await _drive(
+                channel,
+                http,
+                until=lambda: bool(received),
+                received=received,
+            )
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+
+        # connecting → retrying (rejected body) → connected (delivery).
+        self.assertEqual(states[:3], ["connecting", "retrying", "connected"])
+        self.assertEqual([event.message for event in received], ["hello"])
+        self.assertIn("Unauthorized", "\n".join(captured.output))
+        self.assertEqual(channel.status.state, "stopped")
 
     async def test_cancel_during_long_poll_exits_cleanly(self) -> None:
         channel = _channel()

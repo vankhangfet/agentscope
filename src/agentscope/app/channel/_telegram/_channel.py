@@ -108,6 +108,7 @@ class TelegramChannel(ChannelBase):
         self._config = config
         self.status = ChannelStatus()
         self._http: "httpx.AsyncClient | None" = None
+        self._http_lock = asyncio.Lock()
 
     @property
     def channel_id(self) -> str:
@@ -271,7 +272,7 @@ class TelegramChannel(ChannelBase):
             chat_id (`str`): The chat to send to.
             text (`str`): The message text, within the length cap.
         """
-        client = self._ensure_http()
+        client = await self._ensure_http()
         resp = await client.post(
             self._api_url("sendMessage"),
             json={"chat_id": chat_id, "text": text},
@@ -317,7 +318,7 @@ class TelegramChannel(ChannelBase):
         Returns:
             `list[dict]`: The page's raw updates.
         """
-        client = self._ensure_http()
+        client = await self._ensure_http()
         params: dict[str, int] = {"timeout": _POLL_SECONDS}
         if offset:
             params["offset"] = offset
@@ -348,15 +349,20 @@ class TelegramChannel(ChannelBase):
 
         return httpx.AsyncClient(timeout=httpx.Timeout(_POLL_TIMEOUT_SECONDS))
 
-    def _ensure_http(self) -> "httpx.AsyncClient":
+    async def _ensure_http(self) -> "httpx.AsyncClient":
         """Return the lazy HTTP client, shared by listener and sender.
 
         An instance built by ``ChannelClients`` never runs
         ``start_listening``, yet must still reach the platform — so the
         client is created on first use, not during connection setup.
+        Double-checked under a lock: two concurrent callers would each
+        build a client and orphan whichever lost the race (nothing would
+        ever close it).
         """
         if self._http is None:
-            self._http = self._new_http_client()
+            async with self._http_lock:
+                if self._http is None:
+                    self._http = self._new_http_client()
         return self._http
 
     async def aclose(self) -> None:
