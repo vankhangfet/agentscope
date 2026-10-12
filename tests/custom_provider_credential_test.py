@@ -76,10 +76,60 @@ class CustomProviderSchemaTest(TestCase):
         )
 
     def test_models_field_requires_one(self) -> None:
-        with self.assertRaises(Exception):
+        from pydantic import ValidationError
+
+        with self.assertRaises(ValidationError):
             CustomProviderCredential.model_validate(
                 {"api_key": "k", "base_url": "u", "models": []},
             )
+
+class CustomProviderModelResolutionTest(IsolatedAsyncioTestCase):
+    """get_model must build a runnable client from the credential."""
+
+    async def test_get_model_builds_a_runnable_openai_client(self) -> None:
+        """The load-bearing integration: a custom credential must flow
+        through ``get_model`` into a runnable OpenAIChatModel."""
+        from agentscope.app._service._model import get_model
+        from agentscope.app._service import ResourceAccessService
+        from agentscope.app.access import DenyAllResourceAccessPolicy
+        from agentscope.app.storage import ChatModelConfig
+
+        storage, _ = _fake_backends()
+        async with storage:
+            cred = CustomProviderCredential.model_validate(
+                {
+                    "api_key": "sk-anything",
+                    "base_url": "http://localhost:8000/v1",
+                    "models": ["my-llama-8b"],
+                },
+            )
+            await storage.upsert_credential("alice", cred)
+            # DenyAll still resolves OWNED credentials — the owner
+            # read path needs no grants (mirror the endpoint test).
+            access = ResourceAccessService(
+                storage=storage,
+                policy=DenyAllResourceAccessPolicy(),
+            )
+            model = await get_model(
+                "alice",
+                ChatModelConfig(
+                    type="custom_credential",
+                    credential_id=cred.id,
+                    model="my-llama-8b",
+                    parameters={},
+                ),
+                access,
+            )
+            from agentscope.model import OpenAIChatModel
+
+            self.assertIsInstance(model, OpenAIChatModel)
+            self.assertEqual(model.model, "my-llama-8b")
+            self.assertEqual(
+                model.credential.base_url,
+                "http://localhost:8000/v1",
+            )
+
+
 
 
 class CustomProviderRouterTest(IsolatedAsyncioTestCase):

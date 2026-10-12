@@ -59,24 +59,31 @@ async def list_models(
                 detail=f"Credential {body.credential_id!r} not found.",
             )
         data = record.data
-        if data.get("type") == "custom_credential":
-            # Custom cards clone the OpenAI chat template so the
-            # parameter schema (temperature, max_tokens, ...) stays a
-            # valid, renderable shape; sizes reset to the same defaults
-            # ``ChatModelBase`` keeps for nameless custom models.
-            template = ModelCard.model_validate(
+        # ``type`` must match the requested provider — a custom
+        # credential asked for under another provider type is a
+        # mismatched pair, not a custom listing.
+        if (
+            data.get("type") == "custom_credential"
+            and body.provider == "custom_credential"
+        ):
+            # Custom cards build their parameter schema straight from
+            # the chat Parameters class, so no glob-ordered template
+            # card is depended on. The sizes are display hints; at
+            # runtime unmatched custom names keep the model class's
+            # own defaults.
+            schema = (
                 credential_cls.get_chat_model_class()
-                .list_models()[0]
-                .model_dump(),
+                .Parameters.model_json_schema()
             )
             models = [
-                template.model_copy(
-                    update={
-                        "name": name,
-                        "label": name,
-                        "context_size": 32768,
-                        "output_size": 32768,
-                    },
+                ModelCard(
+                    name=name,
+                    label=name,
+                    status="active",
+                    context_size=32768,
+                    output_size=32768,
+                    parameter_schema=schema,
+                    parameters_overrides={},
                 )
                 for name in data.get("models", [])
             ]

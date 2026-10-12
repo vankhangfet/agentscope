@@ -44,6 +44,12 @@ class CustomProviderCredential(CredentialBase):
     )
     """The base URL the endpoint serves."""
 
+    organization: str | None = Field(
+        default=None,
+        description="Optional organization header, when the endpoint uses one.",
+    )
+    """The organization header (``OpenAIChatModel`` reads it)."""
+
     models: list[str] = Field(
         min_length=1,
         description=(
