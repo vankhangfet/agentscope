@@ -96,6 +96,21 @@ async def create_mcp(
     # itself supplies; the answer set is completed before validation so
     # a field with a default is never reported as missing.
     values = {f.name: f.default for f in preset.fields if f.default}
+    # Reject unknown keys so the stored answer set stays honest — an
+    # extra key would otherwise persist forever, silently unused.
+    unknown = [
+        key
+        for key in body.values
+        if key not in {f.name for f in preset.fields}
+    ]
+    if unknown:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"Preset {preset.id!r} has no field(s): "
+                f"{', '.join(sorted(unknown))}."
+            ),
+        )
     values.update(body.values)
     missing = [f.name for f in preset.fields if not values.get(f.name)]
     if missing:
@@ -185,7 +200,21 @@ async def update_mcp(
                 )
             # Merged, not replaced, mirroring the hub flow: the client
             # sends only what changed, and a secret the form did not
-            # echo back must survive.
+            # echo back must survive. Unknown keys are rejected so they
+            # cannot linger in the stored answer set, silently unused.
+            unknown = [
+                key
+                for key in body.values
+                if key not in {f.name for f in preset.fields}
+            ]
+            if unknown:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail=(
+                        f"Preset {preset.id!r} has no field(s): "
+                        f"{', '.join(sorted(unknown))}."
+                    ),
+                )
             merged = {**record.values, **body.values}
             missing = [
                 f.name for f in preset.fields if not merged.get(f.name)

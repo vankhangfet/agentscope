@@ -172,6 +172,90 @@ class McpPresetsTest(IsolatedAsyncioTestCase):
             1,
         )
 
+    def test_create_rejects_unknown_value_keys(self) -> None:
+        """Extra keys would linger in the stored answers, unused."""
+        response = self._client.post(
+            "/mcp",
+            json={
+                "preset_id": "gitlab",
+                "values": {
+                    "url": "https://gitlab.com/api/v4",
+                    "token": "glpat-x",
+                    "typo_field": "oops",
+                },
+            },
+            headers=HEADERS,
+        )
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("typo_field", str(response.json()))
+
+    def test_rekey_rejects_unknown_value_keys(self) -> None:
+        created = self._client.post(
+            "/mcp",
+            json={
+                "preset_id": "gitlab",
+                "values": {
+                    "url": "https://gitlab.com/api/v4",
+                    "token": "glpat-x",
+                },
+            },
+            headers=HEADERS,
+        ).json()["mcp_id"]
+        response = self._client.patch(
+            f"/mcp/{created}",
+            json={"values": {"nope": "x"}},
+            headers=HEADERS,
+        )
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("nope", str(response.json()))
+
+    async def test_preset_field_defaults_fill_the_answers(self) -> None:
+        """A catalog default completes the answer set without the user."""
+        with patch.object(
+            _mcp_presets,
+            "PRESETS",
+            [
+                *_mcp_presets.PRESETS,
+                _mcp_presets.IntegrationPreset(
+                    id="withdefault",
+                    name="Defaulted",
+                    description="",
+                    fields=[
+                        _mcp_presets.PresetField(
+                            name="url",
+                            label="URL",
+                            env_var="DEF_URL",
+                            secret=False,
+                        ),
+                        _mcp_presets.PresetField(
+                            name="region",
+                            label="Region",
+                            env_var="DEF_REGION",
+                            secret=False,
+                            default="eu",
+                        ),
+                    ],
+                    command="echo",
+                    args=[],
+                ),
+            ],
+        ):
+            response = self._client.post(
+                "/mcp",
+                json={
+                    "preset_id": "withdefault",
+                    "values": {"url": "https://x"},
+                },
+                headers=HEADERS,
+            )
+        self.assertEqual(response.status_code, 201)
+        record = await self._record(response.json()["mcp_id"])
+        self.assertEqual(
+            record.client.mcp_config.env.get("DEF_REGION"),
+            "eu",
+        )
+        self.assertEqual(record.values.get("region"), "eu")
+
     def test_create_rejects_an_unknown_preset(self) -> None:
         """A preset id not in the catalog is a 404."""
         response = self._create("nope", values=GITLAB_VALUES)
