@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 """The MS Teams notification tool: push a card from a chat turn.
 
-Finds the calling user's MS Teams channel record in storage and POSTs
-one card through a throwaway sender-side :class:`MSTeamsChannel` built
-from that record — the same nested Credentials / Config validation the
-channel registry performs, without the registry itself (the tool binds
-no message bus, so the heavier :class:`ChannelClients` cache would buy
-nothing for a one-shot send). The channel's lazily opened HTTP client
-is closed again on the way out.
+Finds the calling user's first enabled MS Teams channel record in
+storage and POSTs one card through a throwaway sender-side
+:class:`MSTeamsChannel` built from that record — the same nested
+Credentials / Config validation the channel registry performs, without
+the registry itself (the tool binds no message bus, so the heavier
+:class:`ChannelClients` cache would buy nothing for a one-shot send).
+The channel's lazily opened HTTP client is closed again on the way out.
 """
 from typing import Any
 
@@ -41,11 +41,12 @@ class TeamsNotify(ToolBase):
     """The send_teams_notification tool.
 
     Sends one push notification to the calling user's MS Teams
-    channel. The channel is looked up per call — the first msteams
-    record the user owns wins, with a note when several exist — so a
-    channel created mid-conversation works on the next call without a
-    toolkit refresh. Everything the lookup misses or the webhook
-    refuses comes back as an error chunk; the tool never raises.
+    channel. The channel is looked up per call — the first enabled
+    msteams record the user owns wins, with a note when several
+    exist — so a channel created mid-conversation works on the next
+    call without a toolkit refresh. Everything the lookup misses or
+    the webhook refuses comes back as an error chunk; the tool never
+    raises.
     """
 
     name: str = "send_teams_notification"
@@ -113,11 +114,12 @@ class TeamsNotify(ToolBase):
             record
             for record in records
             if record.channel_type == MSTeamsChannel.channel_type
+            and record.enabled
         ]
         if not teams:
             return _error_chunk(
-                "No MS Teams channel is configured. Create one on the "
-                "Channels page first.",
+                "No enabled MS Teams channel is configured. Create or "
+                "enable one on the Channels page first.",
             )
         record = teams[0]
         channel = MSTeamsChannel(

@@ -90,6 +90,7 @@ async def _seed_channel(
     webhook_url: str = _WEBHOOK_URL,
     platform_bot_id: str = _WEBHOOK_URL,
     name: str | None = None,
+    enabled: bool = True,
 ) -> ChannelRecord:
     """Persist one channel record and return it."""
     credentials = (
@@ -102,6 +103,7 @@ async def _seed_channel(
         channel_type=channel_type,
         name=name,
         credentials=credentials,
+        enabled=enabled,
         routing=RoutingConfig(
             bindings=[ChannelBinding(agent_id="agent-1")],
         ),
@@ -160,8 +162,45 @@ class TeamsNotifyToolTest(IsolatedAsyncioTestCase):
 
         self.assertEqual(chunk.state, ToolResultState.ERROR)
         text = _text(chunk)
-        self.assertIn("No MS Teams channel is configured", text)
+        self.assertIn("No enabled MS Teams channel is configured", text)
         self.assertIn("Channels page", text)
+
+    async def test_disabled_channels_are_skipped(self) -> None:
+        """A disabled msteams record is as good as none — the disable
+        toggle must bite on the tool too, since a push-only channel has
+        no other runtime surface."""
+        await _seed_channel(self.storage, enabled=False)
+        http = _FakeTeamsHTTP()
+
+        chunk = await self._notify(http, text="hi")
+
+        self.assertEqual(chunk.state, ToolResultState.ERROR)
+        text = _text(chunk)
+        self.assertIn("No enabled MS Teams channel is configured", text)
+        self.assertIn("Create or enable one", text)
+        self.assertEqual(http.posts, [])
+
+    async def test_disabled_channel_falls_back_to_the_enabled_one(
+        self,
+    ) -> None:
+        """With a disabled and an enabled record, the card goes to the
+        enabled one — and counts as a single channel (no note)."""
+        await _seed_channel(self.storage, enabled=False)
+        await _seed_channel(
+            self.storage,
+            webhook_url=_OTHER_WEBHOOK_URL,
+            platform_bot_id=_OTHER_WEBHOOK_URL,
+        )
+        http = _FakeTeamsHTTP()
+
+        chunk = await self._notify(http, text="hi")
+
+        self.assertEqual(chunk.state, ToolResultState.SUCCESS)
+        text = _text(chunk)
+        self.assertIn("Notification delivered to MS Teams.", text)
+        self.assertNotIn("MS Teams channels are configured", text)
+        self.assertEqual(len(http.posts), 1)
+        self.assertEqual(http.posts[0][0], _OTHER_WEBHOOK_URL)
 
     async def test_non_msteams_channels_are_ignored(self) -> None:
         """Only msteams records count: other channel types neither
@@ -176,7 +215,10 @@ class TeamsNotifyToolTest(IsolatedAsyncioTestCase):
         chunk = await self._notify(http, text="hi")
 
         self.assertEqual(chunk.state, ToolResultState.ERROR)
-        self.assertIn("No MS Teams channel is configured", _text(chunk))
+        self.assertIn(
+            "No enabled MS Teams channel is configured",
+            _text(chunk),
+        )
         self.assertEqual(http.posts, [])
 
     async def test_happy_path_posts_the_card(self) -> None:
@@ -231,6 +273,8 @@ class TeamsNotifyToolTest(IsolatedAsyncioTestCase):
         self.assertIn("Teams webhook rejected", text)
         self.assertIn("400", text)
         self.assertIn("Bad Request", text)
+        # The error path closes the lazily opened client too.
+        self.assertTrue(http.closed)
 
     async def test_multiple_channels_use_the_first_with_a_note(self) -> None:
         """With several msteams channels, exactly one card is POSTed —
@@ -386,4 +430,7 @@ class TeamsNotifyToolkitTest(IsolatedAsyncioTestCase):
         # Bound to the calling user's storage, ready to answer politely.
         chunk = await registered(text="hi")
         self.assertEqual(chunk.state, ToolResultState.ERROR)
-        self.assertIn("No MS Teams channel is configured", _text(chunk))
+        self.assertIn(
+            "No enabled MS Teams channel is configured",
+            _text(chunk),
+        )
