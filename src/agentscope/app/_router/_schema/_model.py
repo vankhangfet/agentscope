@@ -19,3 +19,12 @@ class ListModelsRequest(BaseModel):
     provider: str = Field(
         description="The provider type, e.g. openai, dashscope, etc.",
     )
+
+    credential_id: str | None = Field(
+        default=None,
+        description=(
+            "Restrict the listing to one credential of that provider "
+            "type — custom-provider credentials declare their own model "
+            "names, so each returns its own list."
+        ),
+    )

@@ -134,7 +134,9 @@ export function LlmSelect({
 							<DropdownMenuGroup key={type}>
 								{idx > 0 && <DropdownMenuSeparator />}
 								<DropdownMenuLabel>
-									{type.replace(/_credential$/, '')}
+									{type === 'custom_credential'
+												? t('llm-select.customProviderGroup')
+												: type.replace(/_credential$/, '')}
 								</DropdownMenuLabel>
 								{isSingle
 									? (

@@ -27,7 +27,12 @@ async function fetchGroups(): Promise<Record<string, CredentialWithModels[]>> {
 			if (!type) return;
 			if (!result[type]) result[type] = [];
 			try {
-				const { models } = await modelApi.list(type);
+				// Custom-provider credentials each declare their own model
+				// names — list per credential instead of per provider type.
+				const { models } = await modelApi.list(
+					type,
+					type === 'custom_credential' ? credential.id : undefined,
+				);
 				// Reverse-alphabetical, which is how the providers' naming
 				// schemes rank themselves — gpt-5 before gpt-4, qwen3 before
 				// qwen2 — so the strongest models sit at the top of the picker.

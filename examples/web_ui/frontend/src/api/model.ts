@@ -7,7 +7,11 @@ import type {
 } from './types';
 
 export const modelApi = {
-	list: (provider: string) => client.get<ListModelResponse>('/model/', { provider }),
+	list: (provider: string, credentialId?: string) =>
+		client.get<ListModelResponse>('/model/', {
+			provider,
+			...(credentialId ? { credential_id: credentialId } : {}),
+		}),
 };
 
 export const ttsModelApi = {

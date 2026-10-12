@@ -476,6 +476,7 @@
 		"customModelTitle": "Custom model",
 		"customModelDescription": "Model name sent to {{credential}} — any name the endpoint serves (e.g. an OpenAI-compatible deployment).",
 		"customModelPlaceholder": "e.g. my-finetuned-model",
+		"customProviderGroup": "Custom Provider",
 		"noFallback": "No fallback"
 	},
 	"chat-model-field": {
