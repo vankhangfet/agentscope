@@ -1,9 +1,20 @@
-import { Blocks, Check, Download, Pencil, Plug, Trash2, TriangleAlert } from 'lucide-react';
+import {
+	Blocks,
+	Check,
+	Download,
+	Pencil,
+	Plug,
+	SlidersHorizontal,
+	Trash2,
+	TriangleAlert,
+} from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
+import { AddIntegrationSection } from './components/AddIntegrationSection';
 import { hubApi } from '@/api';
-import type { HubInfo, MCPCard, MCPView } from '@/api';
+import type { HubInfo, IntegrationPreset, MCPCard, MCPView } from '@/api';
+import { AddIntegrationDialog } from '@/components/dialog/AddIntegrationDialog.tsx';
 import { InstallMCPDialog } from '@/components/dialog/InstallMCPDialog.tsx';
 import { ResourceDetailDrawer } from '@/components/drawer/ResourceDetailDrawer.tsx';
 import { LoadMore } from '@/components/hub/LoadMore.tsx';
@@ -29,6 +40,7 @@ import {
 	ItemMedia,
 	ItemTitle,
 } from '@/components/ui/item.tsx';
+import { Separator } from '@/components/ui/separator.tsx';
 import {
 	Sidebar,
 	SidebarContent,
@@ -43,6 +55,7 @@ import {
 import { Spinner } from '@/components/ui/spinner.tsx';
 import { useMCPHubCards } from '@/hooks/useMCPHubCards.ts';
 import { useMCPHubs } from '@/hooks/useMCPHubs.ts';
+import { useMcpPresets } from '@/hooks/useMcpPresets.ts';
 import { useMCPs } from '@/hooks/useMCPs.ts';
 import { useResourceDrawer } from '@/hooks/useResourceDrawer.ts';
 import { useTranslation } from '@/i18n/useI18n';
@@ -329,11 +342,15 @@ function HubPanel({ hubId, hub, installedNames, onInstalled }: HubPanelProps) {
 interface MinePanelProps {
 	mcps: MCPView[];
 	loading: boolean;
+	/** The built-in integration presets, offered above the list. */
+	presets: IntegrationPreset[];
 	onEdit: (mcp: MCPView) => void;
 	onRemove: (mcpId: string) => void;
+	/** Signals the page to refetch the library after a preset create. */
+	onAdded: () => void;
 }
 
-function MinePanel({ mcps, loading, onEdit, onRemove }: MinePanelProps) {
+function MinePanel({ mcps, loading, presets, onEdit, onRemove, onAdded }: MinePanelProps) {
 	const { t } = useTranslation();
 	const [query, setQuery] = useState('');
 
@@ -364,6 +381,12 @@ function MinePanel({ mcps, loading, onEdit, onRemove }: MinePanelProps) {
 					: undefined
 			}
 		>
+			<AddIntegrationSection presets={presets} onAdded={onAdded} />
+
+			{/* Splits the one-click adds from the library rows; hidden
+			    alongside the section when the catalog is empty. */}
+			{presets.length > 0 && <Separator className="mt-4" />}
+
 			{loading ? (
 				<div className="flex justify-center py-10">
 					<Spinner />
@@ -447,14 +470,22 @@ function MinePanel({ mcps, loading, onEdit, onRemove }: MinePanelProps) {
 									</span>
 								)}
 								{mcp.hub_id && mcp.card_id && (
+									// A preset record's edit form comes from the
+									// catalog entry, not a hub card — a different
+									// glyph so the two do not read as the same
+									// operation.
 									<Button
 										size="icon-sm"
 										variant="ghost"
 										className="text-muted-foreground"
 										onClick={() => onEdit(mcp)}
-										title={t('common.edit')}
+										title={
+											mcp.hub_id === 'preset'
+												? t('mcp.integration.configure')
+												: t('common.edit')
+										}
 									>
-										<Pencil />
+										{mcp.hub_id === 'preset' ? <SlidersHorizontal /> : <Pencil />}
 									</Button>
 								)}
 								<Button
@@ -484,14 +515,26 @@ export function MCPHubPage() {
 	// Loaded page-wide, not per panel: the hub view needs it to mark cards
 	// as already installed, and the "mine" view to list them.
 	const { mcps, loading: mcpsLoading, refetch: refetchMcps, remove } = useMCPs();
+	const { presets } = useMcpPresets();
 	const installedNames = new Set(mcps.map((mcp) => mcp.name));
 	// Editing re-opens the install form against the originating card, so
 	// the card has to be fetched before the dialog can render its inputs.
 	const [editing, setEditing] = useState<MCPView | null>(null);
 	const [editingCard, setEditingCard] = useState<MCPCard | null>(null);
 
+	// A preset record's "card" is the catalog entry named by its card_id —
+	// no hub involved, so it resolves straight from the cached presets and
+	// the dialog builds from its fields. Null when the record is not a
+	// preset one, which keeps the dialog shut.
+	const editingPreset =
+		editing?.hub_id === 'preset'
+			? (presets.find((p) => p.id === editing.card_id) ?? null)
+			: null;
+
 	useEffect(() => {
 		if (!editing?.hub_id || !editing.card_id) return;
+		// Preset records take the catalog path above instead.
+		if (editing.hub_id === 'preset') return;
 		let current = true;
 		hubApi.mcp
 			.getCard(editing.hub_id, editing.card_id)
@@ -634,15 +677,17 @@ export function MCPHubPage() {
 					<MinePanel
 						mcps={mcps}
 						loading={mcpsLoading}
+						presets={presets}
 						onEdit={setEditing}
 						onRemove={remove}
+						onAdded={refetchMcps}
 					/>
 				)}
 			</main>
 
 			<InstallMCPDialog
-				card={editing ? editingCard : null}
-				editing={editing}
+				card={editing && editing.hub_id !== 'preset' ? editingCard : null}
+				editing={editing && editing.hub_id !== 'preset' ? editing : null}
 				onOpenChange={(open) => {
 					if (!open) {
 						setEditing(null);
@@ -650,6 +695,17 @@ export function MCPHubPage() {
 					}
 				}}
 				onInstalled={refetchMcps}
+			/>
+
+			{/* The re-key side of the presets: the library card's configure
+			    action routes here through `editing`. */}
+			<AddIntegrationDialog
+				preset={editingPreset}
+				editing={editingPreset ? editing : null}
+				onOpenChange={(open) => {
+					if (!open) setEditing(null);
+				}}
+				onCreated={refetchMcps}
 			/>
 		</div>
 	);

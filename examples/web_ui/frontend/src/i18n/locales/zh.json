@@ -1077,7 +1077,19 @@
 		"nameLabel": "名称",
 		"loadFailedTitle": "无法连接服务",
 		"loadFailedDescription": "请检查服务地址，以及服务是否已启动。",
-		"retry": "重试"
+		"retry": "重试",
+		"integration": {
+			"sectionLabel": "添加集成",
+			"addTitle": "添加 {{name}}",
+			"addDescription": "添加到你的 MCP 中，之后可在会话里启用。",
+			"configure": "配置",
+			"configureTitle": "配置 {{name}}",
+			"configureDescription": "留空的字段将沿用已保存的值。",
+			"nameHint": "默认为 {{id}}，仅限字母、数字、中划线和下划线。",
+			"toggleVisibility": "显示或隐藏取值",
+			"addedToast": "已将 {{name}} 添加到你的 MCP",
+			"savedToast": "已更新 {{name}}"
+		}
 	},
 	"skill": {
 		"subtitle": "浏览并安装技能",

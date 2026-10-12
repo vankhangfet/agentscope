@@ -1077,7 +1077,19 @@
 		"nameLabel": "Name",
 		"loadFailedTitle": "Couldn't reach the server",
 		"loadFailedDescription": "Check the server URL and that the service is running.",
-		"retry": "Retry"
+		"retry": "Retry",
+		"integration": {
+			"sectionLabel": "Add integration",
+			"addTitle": "Add {{name}}",
+			"addDescription": "Adds it to your MCPs. Pick a session to use it in afterwards.",
+			"configure": "Configure",
+			"configureTitle": "Configure {{name}}",
+			"configureDescription": "Leave a field blank to keep the value already stored.",
+			"nameHint": "Defaults to {{id}} — letters, digits, dashes and underscores only.",
+			"toggleVisibility": "Show or hide the value",
+			"addedToast": "{{name}} added to your MCPs",
+			"savedToast": "{{name}} updated"
+		}
 	},
 	"skill": {
 		"subtitle": "Browse and install skills",

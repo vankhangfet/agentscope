@@ -724,6 +724,54 @@ export interface InstallMCPRequest {
 	values: Record<string, unknown>;
 }
 
+/** One field an integration preset asks the user to fill in. */
+export interface PresetField {
+	/** The field's key in `values`. */
+	name: string;
+	/** The human-readable prompt. */
+	label: string;
+	/** Whether the input must be masked. */
+	secret: boolean;
+	/** Hint text for the input; empty when the preset offers none. */
+	placeholder: string;
+	/** The value used when none is sent; empty when there is no default. */
+	default: string;
+}
+
+/**
+ * One integration preset from `GET /mcp/presets`: a curated MCP server
+ * plus the few fields a user must fill in, typically a URL and a token.
+ * It needs no hub — the server renders the values into a fixed command.
+ */
+export interface IntegrationPreset {
+	/** The preset id, for `preset_id` in the create request. */
+	id: string;
+	name: string;
+	description: string;
+	/** The inputs the user must fill in. */
+	fields: PresetField[];
+}
+
+export interface ListPresetsResponse {
+	presets: IntegrationPreset[];
+	total: number;
+}
+
+export interface CreateFromPresetRequest {
+	preset_id: string;
+	/**
+	 * Name to install under, defaulting to the preset id. Must match
+	 * `[a-zA-Z0-9_-]+`; use it to resolve a 409 name clash.
+	 */
+	name?: string | null;
+	/** Answers to the preset's fields, e.g. API keys. */
+	values: Record<string, string>;
+}
+
+export interface CreateFromPresetResponse {
+	mcp_id: string;
+}
+
 // ─── Installed MCPs and skills ────────────────────────────────────────────────
 
 /**
@@ -749,8 +797,9 @@ export interface MCPView {
 	author: string | null;
 	icon_url: string | null;
 	url: string | null;
-	/** `null` when the MCP was added by hand rather than from a hub. */
+	/** The hub it came from, `"preset"` for a catalog entry, or `null` when added by hand. */
 	hub_id: string | null;
+	/** The card's id on that hub — for `"preset"` records, the preset id. */
 	card_id: string | null;
 	version: string | null;
 }
