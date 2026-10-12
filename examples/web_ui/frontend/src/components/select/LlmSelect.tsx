@@ -243,7 +243,13 @@ export function LlmSelect({
 					autoFocus
 				/>
 				<DialogFooter>
-					<Button variant="outline" onClick={() => setCustomTarget(null)}>
+					<Button
+						variant="outline"
+						onClick={() => {
+							setCustomTarget(null);
+							setCustomName('');
+						}}
+					>
 						{t('common.cancel')}
 					</Button>
 					<Button onClick={confirmCustom} disabled={!customName.trim()}>
