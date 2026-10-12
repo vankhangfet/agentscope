@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-"""Schemas for installing and editing MCPs from a hub."""
+"""Schemas for the MCP library: installing from a hub, creating from a
+preset, and editing what is installed."""
 from pydantic import BaseModel, Field
 
 from ...storage import MCPRecord
@@ -125,3 +126,55 @@ class UpdateMCPRequest(BaseModel):
         default=None,
         description="Whether the MCP is turned on.",
     )
+
+
+class PresetFieldView(BaseModel):
+    """One field a preset asks the user to fill in."""
+
+    name: str = Field(description="The field's key in `values`.")
+    label: str = Field(description="The human-readable prompt.")
+    secret: bool = Field(description="Whether the input must be masked.")
+    placeholder: str = Field(description="Hint text for the input.")
+    default: str = Field(description="The value used when none is sent.")
+
+
+class PresetView(BaseModel):
+    """One catalog entry, as listed by ``GET /mcp/presets``."""
+
+    id: str = Field(description="The preset id, for `preset_id`.")
+    name: str = Field(description="The preset's display name.")
+    description: str = Field(description="One line on what it connects to.")
+    fields: list[PresetFieldView] = Field(
+        description="The inputs the user must fill in.",
+    )
+
+
+class ListPresetsResponse(BaseModel):
+    """The body of the preset catalog listing."""
+
+    presets: list[PresetView] = Field(description="The catalog entries.")
+    total: int = Field(description="How many entries the catalog holds.")
+
+
+class CreateFromPresetRequest(BaseModel):
+    """The body of a direct create from the preset catalog."""
+
+    preset_id: str = Field(description="The catalog entry to render.")
+    name: str | None = Field(
+        default=None,
+        description=(
+            "The name to install under, defaulting to the preset id. "
+            "Must match ``[a-zA-Z0-9_-]+``; use it to resolve a clash "
+            "with an MCP already in the library."
+        ),
+    )
+    values: dict[str, str] = Field(
+        default_factory=dict,
+        description="The answers to the preset's fields, e.g. API keys.",
+    )
+
+
+class CreateFromPresetResponse(BaseModel):
+    """The body of a successful direct create."""
+
+    mcp_id: str = Field(description="The installed-MCP record id.")

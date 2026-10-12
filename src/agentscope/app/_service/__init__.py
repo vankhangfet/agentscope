@@ -18,6 +18,14 @@ from ._index_sweeper import IndexSweeper
 from ._index_task_consumer import IndexTaskConsumer
 from ._index_worker import IndexWorker
 from ._knowledge_base import KnowledgeBaseService
+from ._mcp_presets import (
+    PRESETS,
+    IntegrationPreset,
+    PresetField,
+    get_preset,
+    preset_view,
+    render_preset,
+)
 from ._mcp_render import MCPRenderError, render_mcp
 from ._model import get_model, get_realtime_model
 from ._tts_model import get_tts_model
@@ -47,6 +55,9 @@ __all__ = [
     "KnowledgeBaseStatusCounts",
     "KnowledgeBaseView",
     "MCPRenderError",
+    "PRESETS",
+    "IntegrationPreset",
+    "PresetField",
     "ResourceAccessService",
     "RealtimeService",
     "SessionSOPStep",
@@ -64,8 +75,11 @@ __all__ = [
     "WorkspaceStatus",
     "get_embedding_model",
     "get_model",
+    "get_preset",
     "get_realtime_model",
     "get_tts_model",
     "get_toolkit",
+    "preset_view",
     "render_mcp",
+    "render_preset",
 ]

@@ -3,20 +3,39 @@
 
 This is the user-level collection an install lands in, distinct from
 ``/workspace/mcp``, which manages the MCPs of one session's workspace.
-Installing from a hub only writes here; putting an MCP into a workspace
-stays a separate, explicit act.
+Installing from a hub or creating from a preset only writes here;
+putting an MCP into a workspace stays a separate, explicit act.
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import ValidationError
 
 from ..deps import get_current_user_id, get_mcp_hubs, get_storage
 from ..hub import MCPHubBase
-from .._service import MCPRenderError, render_mcp
-from ..storage import StorageBase
+from .._service import (
+    MCPRenderError,
+    PRESETS,
+    get_preset,
+    preset_view,
+    render_mcp,
+    render_preset,
+)
+from ..storage import MCPRecord, StorageBase
 from ...mcp import MCPClient
-from ._schema import MCPView, UpdateMCPRequest
+from ._schema import (
+    CreateFromPresetRequest,
+    CreateFromPresetResponse,
+    ListPresetsResponse,
+    MCPView,
+    PresetView,
+    UpdateMCPRequest,
+)
 
 mcp_router = APIRouter(prefix="/mcp", tags=["mcp"])
+
+# The reserved hub id marking a record born from the preset catalog —
+# its "card" is the catalog entry named by ``card_id``, so PATCH can
+# re-render without any hub being registered.
+PRESET_HUB_ID = "preset"
 
 
 @mcp_router.get("")
@@ -32,6 +51,93 @@ async def list_mcps(
     )
 
 
+# Declared before the ``/{mcp_id}`` routes: a literal path segment must
+# not risk being captured as someone's record id.
+@mcp_router.get("/presets")
+async def list_presets() -> ListPresetsResponse:
+    """List the built-in integration presets.
+
+    Static catalog data with nothing per-user in it, so it takes no
+    storage and no hub — it is the no-hub path into this library.
+    """
+    return ListPresetsResponse(
+        presets=[PresetView(**preset_view(p)) for p in PRESETS],
+        total=len(PRESETS),
+    )
+
+
+@mcp_router.post("", status_code=status.HTTP_201_CREATED)
+async def create_mcp(
+    body: CreateFromPresetRequest,
+    user_id: str = Depends(get_current_user_id),
+    storage: StorageBase = Depends(get_storage),
+) -> CreateFromPresetResponse:
+    """Fill a preset's fields and add the result to the library.
+
+    Mirrors a hub install, minus the hub: the values become environment
+    variables on the preset's fixed command, and the record keeps
+    ``(hub_id="preset", card_id=preset_id)`` so a later re-key can
+    re-render from the catalog entry instead of a card. Like an
+    install, the config is not connection-tested here.
+
+    Raises:
+        `HTTPException`: 404 if the preset is not in the catalog, 422
+            if a required field is missing or the name is not made of
+            ``[a-zA-Z0-9_-]``, or 409 if the name is taken.
+    """
+    preset = get_preset(body.preset_id)
+    if preset is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No integration preset with id {body.preset_id!r}.",
+        )
+
+    # Every catalog field is required, modulo the defaults the catalog
+    # itself supplies; the answer set is completed before validation so
+    # a field with a default is never reported as missing.
+    values = {f.name: f.default for f in preset.fields if f.default}
+    values.update(body.values)
+    missing = [f.name for f in preset.fields if not values.get(f.name)]
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"Preset {preset.id!r} needs a value for: "
+                f"{', '.join(missing)}."
+            ),
+        )
+
+    try:
+        client = render_preset(preset, values, body.name)
+    except ValueError as e:
+        # ``MCPClient`` refusing the name — the same check PATCH makes.
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(e),
+        ) from e
+
+    record = MCPRecord(
+        user_id=user_id,
+        client=client,
+        values=values,
+        display_name=preset.name,
+        description=preset.description,
+        hub_id=PRESET_HUB_ID,
+        card_id=preset.id,
+    )
+    try:
+        mcp_id = await storage.upsert_mcp(user_id, record)
+    except ValueError as e:
+        # The name is unique per user, so a clash is the caller's to
+        # resolve by passing a different one.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"{e} Pass a different 'name' to add it alongside.",
+        ) from e
+
+    return CreateFromPresetResponse(mcp_id=mcp_id)
+
+
 @mcp_router.patch("/{mcp_id}")
 async def update_mcp(
     mcp_id: str,
@@ -45,12 +151,14 @@ async def update_mcp(
     Changing a secret is a re-render, not a field edit: an API key can
     sit anywhere in the config — inside a URL, a header, an env var — so
     the card's template plus the merged answers is the only thing that
-    knows where to put it.
+    knows where to put it. Preset records re-render from the catalog
+    entry the same way; hand-added records have neither, and are
+    refused.
 
     Raises:
         `HTTPException`: 404 if the MCP is not in the caller's library,
-            400 if the MCP has no card to re-render from, 409 if the new
-            name is taken, or 422 if the name is not made of
+            400 if the MCP has no card or preset to re-render from, 409
+            if the new name is taken, or 422 if the name is not made of
             ``[a-zA-Z0-9_-]``.
     """
     record = await storage.get_mcp(user_id, mcp_id)
@@ -61,42 +169,85 @@ async def update_mcp(
         )
 
     if body.values is not None:
-        hub = hubs.get(record.hub_id or "")
-        if hub is None or record.card_id is None:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=(
-                    "This MCP has no card to re-render from — its hub is "
-                    "not registered, or it was added by hand."
-                ),
-            )
-        try:
-            card = await hub.get_mcp(user_id, record.card_id)
-        except KeyError as e:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=(
-                    f"Hub {record.hub_id!r} no longer has the card this "
-                    f"MCP was installed from."
-                ),
-            ) from e
+        if record.hub_id == PRESET_HUB_ID:
+            # A preset record re-renders from the catalog entry, not a
+            # hub card; the reserved hub id keeps it out of the hub
+            # lookup below even when one shares the name.
+            preset = get_preset(record.card_id or "")
+            if preset is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        "This MCP has no preset to re-render from — the "
+                        "catalog no longer has the entry it was created "
+                        "from."
+                    ),
+                )
+            # Merged, not replaced, mirroring the hub flow: the client
+            # sends only what changed, and a secret the form did not
+            # echo back must survive.
+            merged = {**record.values, **body.values}
+            missing = [
+                f.name for f in preset.fields if not merged.get(f.name)
+            ]
+            if missing:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail=(
+                        f"Preset {preset.id!r} needs a value for: "
+                        f"{', '.join(missing)}."
+                    ),
+                )
+            try:
+                record.client = render_preset(
+                    preset,
+                    merged,
+                    body.name or record.client.name,
+                )
+            except ValueError as e:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail=str(e),
+                ) from e
+            record.values = merged
+        else:
+            hub = hubs.get(record.hub_id or "")
+            if hub is None or record.card_id is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        "This MCP has no card to re-render from — its "
+                        "hub is not registered, or it was added by hand."
+                    ),
+                )
+            try:
+                card = await hub.get_mcp(user_id, record.card_id)
+            except KeyError as e:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=(
+                        f"Hub {record.hub_id!r} no longer has the card "
+                        f"this MCP was installed from."
+                    ),
+                ) from e
 
-        # Merged, not replaced: the client sends only what changed, and
-        # a write-only field the form did not echo back must survive.
-        merged = {**record.values, **body.values}
-        try:
-            record.client = render_mcp(
-                card,
-                merged,
-                body.name or record.client.name,
-            )
-        except MCPRenderError as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=str(e),
-            ) from e
-        record.values = merged
-        record.version = card.version
+            # Merged, not replaced: the client sends only what changed,
+            # and a write-only field the form did not echo back must
+            # survive.
+            merged = {**record.values, **body.values}
+            try:
+                record.client = render_mcp(
+                    card,
+                    merged,
+                    body.name or record.client.name,
+                )
+            except MCPRenderError as e:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=str(e),
+                ) from e
+            record.values = merged
+            record.version = card.version
     elif body.name is not None:
         # ``MCPClient`` checks its name in ``model_post_init``, which a
         # plain attribute assignment skips; rebuild the client through
