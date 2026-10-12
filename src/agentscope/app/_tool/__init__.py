@@ -34,6 +34,11 @@ factory" helper.
 ``WorkflowRun`` does not follow the team rules: it is a single tool
 bound to the app's workflow service + engine, attached by the chat
 service once the lifespan has wired those onto it.
+
+``TeamsNotify`` is service-level too, but unconditional:
+:func:`get_toolkit` constructs it for every chat turn from the calling
+user + storage alone, and the tool itself errors politely when that
+user has no MS Teams channel configured.
 """
 from ._agent_create import AgentCreate, DEFAULT_SUB_AGENT_TEMPLATE
 from ._agent_invite import AgentInvite
@@ -41,6 +46,7 @@ from ._team_create import TeamCreate
 from ._team_delete import TeamDelete
 from ._sop_submit import SubmitHandover, SubmitVerdict
 from ._team_say import TeamSay
+from ._teams_notify import TeamsNotify
 from ._workflow_run import WorkflowRun
 
 __all__ = [
@@ -52,5 +58,6 @@ __all__ = [
     "TeamCreate",
     "TeamDelete",
     "TeamSay",
+    "TeamsNotify",
     "WorkflowRun",
 ]

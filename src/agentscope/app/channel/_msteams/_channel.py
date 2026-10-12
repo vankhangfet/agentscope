@@ -211,7 +211,7 @@ class MSTeamsChannel(ChannelBase):
         """POST one MessageCard to the webhook URL.
 
         Args:
-            title (`str | None`): Card title; ``None`` omits it.
+            title (`str | None`): Card title; a falsy value omits it.
             text (`str`): Card body, capped at the MessageCard limit.
 
         Raises:

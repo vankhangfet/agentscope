@@ -4,7 +4,8 @@
 The single entry point :func:`get_toolkit` gathers every tool source —
 workspace builtins, MCPs, skills, planning tools (Task*), background-task
 control (ToolStop), schedule control (Schedule*), workflow control
-(WorkflowRun), team participation tools, and caller-supplied extras — into
+(WorkflowRun), MS Teams push notifications (send_teams_notification),
+team participation tools, and caller-supplied extras — into
 one :class:`Toolkit`.
 """
 from typing import Any, Literal
@@ -19,6 +20,7 @@ from .._tool import (
     TeamCreate,
     TeamDelete,
     TeamSay,
+    TeamsNotify,
 )
 from .._types import AgentToolFactory, SubAgentTemplate
 from ..storage import AgentRecord, SessionRecord, StorageBase
@@ -75,10 +77,13 @@ async def get_toolkit(
     5. Workflow control (:class:`WorkflowRun`, caller-resolved
        ``workflow_tools``) — only attached when the caller wired the
        workflow subsystem.
-    6. Team tools — by caller-resolved ``team_role``: a worker gets only
+    6. MS Teams push notifications (:class:`TeamsNotify`) — always
+       attached, built from ``user_id`` + ``storage`` alone; the tool
+       answers politely at call time when no channel exists.
+    7. Team tools — by caller-resolved ``team_role``: a worker gets only
        ``TeamSay``; anyone else gets the full leader-side toolset.
-    7. Caller-supplied extras (``extra_factory``)
-    8. Channel platform tools — the caller resolves them (once, shared
+    8. Caller-supplied extras (``extra_factory``)
+    9. Channel platform tools — the caller resolves them (once, shared
        with the system-prompt attachment) and passes ``channel_tools``.
 
     Plus the workspace's skills and MCPs, which become the toolkit's
@@ -188,6 +193,11 @@ time or interval"
     # are attached to it; other callers pass nothing.
     if workflow_tools:
         tools += workflow_tools
+
+    # MS Teams push notifications. Service-level like the schedule
+    # tools and always constructed: the lookup happens per call, so
+    # the tool errors politely when the user has no channel yet.
+    tools.append(TeamsNotify(user_id=user_id, storage=storage))
 
     # Team tools by caller-resolved role; non-team sessions get the
     # leader set (each leader tool rechecks its precondition at call time).
