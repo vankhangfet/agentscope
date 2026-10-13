@@ -178,3 +178,33 @@ class CreateFromPresetResponse(BaseModel):
     """The body of a successful direct create."""
 
     mcp_id: str = Field(description="The installed-MCP record id.")
+
+
+class McpToolView(BaseModel):
+    """One tool an installed MCP offers."""
+
+    name: str = Field(description="The tool's name, as `tools` takes it.")
+    description: str = Field(
+        default="",
+        description="What the tool does, per the server.",
+    )
+
+
+class McpToolGroupView(BaseModel):
+    """The tools of one installed MCP."""
+
+    name: str = Field(description="The MCP name the tools belong to.")
+    tools: list[McpToolView] = Field(
+        description=(
+            "The MCP's tools, empty when it could not be reached."
+        ),
+    )
+
+
+class ListMcpToolsResponse(BaseModel):
+    """The body of the user-level available-tools listing."""
+
+    groups: list[McpToolGroupView] = Field(
+        description="One group per enabled MCP, in library order.",
+    )
+    total: int = Field(description="How many tools the groups hold.")

@@ -6,6 +6,8 @@ This is the user-level collection an install lands in, distinct from
 Installing from a hub or creating from a preset only writes here;
 putting an MCP into a workspace stays a separate, explicit act.
 """
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import ValidationError
 
@@ -24,8 +26,11 @@ from ...mcp import MCPClient
 from ._schema import (
     CreateFromPresetRequest,
     CreateFromPresetResponse,
+    ListMcpToolsResponse,
     ListPresetsResponse,
     MCPView,
+    McpToolGroupView,
+    McpToolView,
     PresetView,
     UpdateMCPRequest,
 )
@@ -36,6 +41,10 @@ mcp_router = APIRouter(prefix="/mcp", tags=["mcp"])
 # its "card" is the catalog entry named by ``card_id``, so PATCH can
 # re-render without any hub being registered.
 PRESET_HUB_ID = "preset"
+
+# The per-server budget for listing tools. One unreachable server must
+# not hold the whole listing hostage; see ``_tool_group``.
+TOOL_LIST_TIMEOUT = 15.0
 
 
 @mcp_router.get("")
@@ -63,6 +72,62 @@ async def list_presets() -> ListPresetsResponse:
     return ListPresetsResponse(
         presets=[PresetView(**preset_view(p)) for p in PRESETS],
         total=len(PRESETS),
+    )
+
+
+async def _tool_group(record: MCPRecord) -> McpToolGroupView:
+    """List one installed MCP's tools, or none of them on any failure.
+
+    A server that is down, slow, or misbehaving — a stateful one with
+    no live session included — simply contributes an empty group: this
+    listing is advisory, for picking tool names, so it carries no error
+    field and a broken server stays silent rather than loud.
+
+    Args:
+        record (`MCPRecord`):
+            The installed-MCP record to list from.
+
+    Returns:
+        `McpToolGroupView`:
+            The group for this MCP, its tools possibly empty.
+    """
+    try:
+        tools = await asyncio.wait_for(
+            record.client.list_tools(),
+            timeout=TOOL_LIST_TIMEOUT,
+        )
+    except Exception:
+        tools = []
+    return McpToolGroupView(
+        name=record.client.name,
+        tools=[
+            McpToolView(name=tool.name, description=tool.description)
+            for tool in tools
+        ],
+    )
+
+
+# Declared before the ``/{mcp_id}`` routes, like ``/presets`` above: a
+# literal path segment must not risk being captured as a record id.
+@mcp_router.get("/tools")
+async def list_mcp_tools(
+    user_id: str = Depends(get_current_user_id),
+    storage: StorageBase = Depends(get_storage),
+) -> ListMcpToolsResponse:
+    """List the tools the user's enabled MCPs make available.
+
+    Distinct from ``GET /workspace/mcp``: that one reports the live
+    clients of one running session, while this works from the library
+    alone, so the agent form can offer tool names before any session
+    exists. Groups run concurrently, one per enabled MCP in library
+    order; unhealthy servers contribute an empty group, and the total
+    counts tools, not servers.
+    """
+    records = [r for r in await storage.list_mcps(user_id) if r.enabled]
+    groups = await asyncio.gather(*(_tool_group(r) for r in records))
+    return ListMcpToolsResponse(
+        groups=list(groups),
+        total=sum(len(group.tools) for group in groups),
     )
 
 
