@@ -189,8 +189,8 @@
 			},
 			"tools": {
 				"label": "工具",
-				"description": "该智能体可使用的工作区 MCP 工具名称。",
-				"placeholder": "输入工具名称后按回车添加"
+				"description": "该智能体可使用的工作区 MCP 工具——从已安装的 MCP 中选择，或输入自定义名称。",
+				"placeholder": "输入自定义工具名称"
 			},
 			"memory": {
 				"label": "长期记忆",
@@ -486,6 +486,15 @@
 		"add": "添加条目…",
 		"empty": "暂无条目。",
 		"remove": "移除 {{item}}"
+	},
+	"tools-picker": {
+		"select": "选择工具…",
+		"search": "搜索工具…",
+		"no-match": "未找到工具。",
+		"empty": "暂无工具。",
+		"add": "添加工具",
+		"custom-label": "或输入自定义工具名称",
+		"custom-hint": "也可以直接输入自定义名称。"
 	},
 	"realtime": {
 		"selectModel": "语音模型",

@@ -772,6 +772,31 @@ export interface CreateFromPresetResponse {
 	mcp_id: string;
 }
 
+// ─── Available MCP tools ──────────────────────────────────────────────────────
+
+/** One tool an installed MCP offers, as listed by `GET /mcp/tools`. */
+export interface McpTool {
+	name: string;
+	/** What the tool does, per the server. */
+	description: string;
+}
+
+/**
+ * The tools one installed MCP offers. An empty `tools` array means the
+ * server could not be reached — the listing carries no per-group error.
+ */
+export interface McpToolGroup {
+	/** The MCP name the tools belong to. */
+	name: string;
+	tools: McpTool[];
+}
+
+export interface ListMcpToolsResponse {
+	groups: McpToolGroup[];
+	/** How many tools the groups hold — not how many servers answered. */
+	total: number;
+}
+
 // ─── Installed MCPs and skills ────────────────────────────────────────────────
 
 /**

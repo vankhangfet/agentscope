@@ -1,8 +1,8 @@
-import { Plus, X } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { useState, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { Badge } from '@/components/ui/badge';
+import { ChipList } from '@/components/form/ChipList';
 import { Button } from '@/components/ui/button';
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
@@ -72,23 +72,7 @@ export function ArrayField({
 					{emptyHint ?? t('array-field.empty')}
 				</p>
 			) : (
-				<ul className="flex flex-wrap gap-1.5">
-					{value.map((item) => (
-						<li key={item}>
-							<Badge variant="secondary" className="pl-2">
-								{item}
-								<button
-									type="button"
-									className="text-muted-foreground hover:text-foreground -mr-1 flex size-4 items-center justify-center rounded-full hover:bg-foreground/10"
-									onClick={() => remove(item)}
-									aria-label={t('array-field.remove', { item })}
-								>
-									<X className="size-3" />
-								</button>
-							</Badge>
-						</li>
-					))}
-				</ul>
+				<ChipList items={value} onRemove={remove} />
 			)}
 			<div className="flex gap-2">
 				<Input
@@ -100,6 +84,7 @@ export function ArrayField({
 					placeholder={placeholder ?? t('array-field.add')}
 				/>
 				<Button
+					type="button"
 					variant="outline"
 					size="icon"
 					onClick={add}

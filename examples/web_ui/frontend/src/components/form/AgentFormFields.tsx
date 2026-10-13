@@ -6,9 +6,9 @@ import type {
 	JSONSchema,
 	JSONSchemaProperty,
 } from '@/api';
-import { ArrayField } from '@/components/form/ArrayField';
 import { ChatModelField } from '@/components/form/ChatModelField';
 import { SchemaForm, type SchemaFormValue } from '@/components/form/SchemaForm';
+import { ToolsPickerField } from '@/components/form/ToolsPickerField';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
 	Field,
@@ -170,7 +170,7 @@ export function AgentFormFields({ schema, values, onChange }: Props) {
 										}
 										onChange={(v) => onChange('template', 'chat_model_config', v)}
 									/>
-									<ArrayField
+									<ToolsPickerField
 										id="agent-form-template-tools"
 										label={t('agent-form.template.tools.label')}
 										description={t('agent-form.template.tools.description')}

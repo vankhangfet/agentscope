@@ -189,8 +189,8 @@
 			},
 			"tools": {
 				"label": "Tools",
-				"description": "Workspace MCP tool names the agent may use.",
-				"placeholder": "Add a tool name and press Enter"
+				"description": "Workspace MCP tools the agent may use — pick from your installed MCPs, or type a custom name.",
+				"placeholder": "Type a custom tool name"
 			},
 			"memory": {
 				"label": "Long-term memory",
@@ -486,6 +486,15 @@
 		"add": "Add item…",
 		"empty": "No items yet.",
 		"remove": "Remove {{item}}"
+	},
+	"tools-picker": {
+		"select": "Select tools…",
+		"search": "Search tools…",
+		"no-match": "No tools found.",
+		"empty": "No tools yet.",
+		"add": "Add tool",
+		"custom-label": "Or type a custom tool name",
+		"custom-hint": "Custom names can also be typed."
 	},
 	"realtime": {
 		"selectModel": "Voice model",
