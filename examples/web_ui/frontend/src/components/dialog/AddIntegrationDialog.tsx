@@ -54,7 +54,6 @@ function PresetFieldInput({
 				{field.secret && (
 					<button
 						type="button"
-						tabIndex={-1}
 						className="absolute right-1.5 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:text-foreground"
 						onClick={() => setVisible((v) => !v)}
 						aria-label={t('mcp.integration.toggleVisibility')}
@@ -97,10 +96,16 @@ export function AddIntegrationDialog({ preset, editing, onOpenChange, onCreated 
 	const [error, setError] = useState<string | null>(null);
 
 	// Reset per preset, so a previous form's token is never carried over.
+	// Editing starts every field blank: a pre-filled default would be
+	// sent as "filled" and silently overwrite the stored value.
 	useEffect(() => {
 		if (!preset) return;
 		setName(editing?.name ?? '');
-		setValues(Object.fromEntries(preset.fields.map((f) => [f.name, f.default])));
+		setValues(
+			Object.fromEntries(
+				preset.fields.map((f) => [f.name, editing ? '' : f.default]),
+			),
+		);
 		setError(null);
 	}, [preset, editing]);
 
