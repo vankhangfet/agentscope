@@ -10,6 +10,7 @@ from contextlib import (
 from typing import Any, AsyncGenerator, ClassVar, TYPE_CHECKING
 from urllib.parse import urlsplit
 
+import anyio
 import httpx
 import mcp.types
 from mcp import ClientSession, stdio_client, StdioServerParameters
@@ -378,11 +379,24 @@ class MCPClient(BaseModel):
         stack = AsyncExitStack()
         self._stack = stack
 
+        # Contexts whose ``__aenter__`` succeeded, unwound manually on
+        # failure — an ``AsyncExitStack`` cannot resume after an
+        # interrupted ``aclose``, and both half-unwinds (detached via
+        # ``asyncio.shield``: anyio's "different task" guard; plain
+        # same-task: a live caller scope keeps re-cancelling every
+        # await) lose the transport's subprocess. Exiting each context
+        # individually inside its own shielded scope finishes in every
+        # case: the shield blocks the outer cancellation while the exit
+        # runs, and staying in this task keeps anyio's scope ownership
+        # rules satisfied.
+        entered: list[Any] = []
         try:
             context = await stack.enter_async_context(self._client)
+            entered.append(self._client)
             read_stream, write_stream = context[0], context[1]
             self._session = ClientSession(read_stream, write_stream)
             await stack.enter_async_context(self._session)
+            entered.append(self._session)
             await self._session.initialize()
 
             self._is_connected = True
@@ -390,41 +404,67 @@ class MCPClient(BaseModel):
         except BaseException as original:
             # asyncio.CancelledError inherits BaseException, so a
             # cancelled initialization must close every context entered
-            # so far.
+            # so far. Each context is exited unshielded first: a
+            # transport child task's real failure (a refused
+            # connection, a server dying at startup) surfaces from its
+            # task group exactly then, and wins over the placeholder
+            # cancel anyio raised for it. Only when an exit is cut
+            # short by a cancellation — a still-live caller scope, a
+            # disconnecting request — is that exit (and every one after
+            # it) retried inside a shielded scope, and the original
+            # cancellation then escapes as itself.
             failure = original
-            try:
-                # Same task, unshielded: anyio cancel scopes may only be
-                # exited by the task that entered them, and a shield (or
-                # any other task) moves the exit off-task — anyio then
-                # aborts the unwind mid-way and delivers a cancellation
-                # back to THIS task, which replaces the real failure
-                # with a stray CancelledError no `except Exception` can
-                # absorb. A genuine outer cancellation still gets
-                # through: it re-delivers on every await below, so the
-                # unwind cannot complete and the cancel survives.
-                await stack.aclose()
-            except BaseException as teardown_exc:
-                if _is_scope_delivered_cancel(original) and isinstance(
-                    teardown_exc,
-                    Exception,
-                ):
-                    # anyio interrupts the host task with a scoped cancel
-                    # the moment a child task dies (a refused connection,
-                    # for one); the child's real failure only surfaces
-                    # when the task group unwinds, here. Prefer it — the
-                    # cancel was a placeholder, not a cancellation.
-                    failure = teardown_exc
-                # Any other teardown error never masks the original.
-            finally:
-                self._client = None
-                self._stack = None
-                self._session = None
-                self._is_connected = False
-            if failure is original and _is_scope_delivered_cancel(original):
-                # A scoped cancel with nothing behind it (an internal
-                # scope withdrew without leaving a failure behind) must
-                # not escape as a CancelledError either — callers catch
-                # `Exception`, not `BaseException`.
+            genuine_cancel = False
+            for cm in reversed(entered):
+                for shielded in (False, True):
+                    try:
+                        if shielded:
+                            with anyio.CancelScope(shield=True):
+                                await cm.__aexit__(
+                                    type(original),
+                                    original,
+                                    original.__traceback__,
+                                )
+                        else:
+                            await cm.__aexit__(
+                                type(original),
+                                original,
+                                original.__traceback__,
+                            )
+                        break
+                    except asyncio.CancelledError:
+                        genuine_cancel = True
+                        # Retry shielded; an interrupted contextlib
+                        # generator cannot resume (its retry is a
+                        # no-op), which is the pre-existing best
+                        # effort under a live cancelling scope.
+                    except Exception as exit_exc:
+                        if (
+                            failure is original
+                            and _is_scope_delivered_cancel(original)
+                        ):
+                            failure = exit_exc
+                        else:
+                            logger.debug(
+                                "MCP '%s': cleanup after failure raised "
+                                "%r.",
+                                self.name,
+                                exit_exc,
+                            )
+                        break
+            self._client = None
+            self._stack = None
+            self._session = None
+            self._is_connected = False
+            if (
+                failure is original
+                and _is_scope_delivered_cancel(original)
+                and not genuine_cancel
+            ):
+                # A placeholder cancel that surfaced no child failure
+                # must not escape as a CancelledError — callers catch
+                # `Exception`, not `BaseException`. A genuine
+                # cancellation instead keeps escaping as itself.
                 failure = RuntimeError(
                     f"Initializing MCP '{self.name}' was interrupted "
                     f"before the connection could be established.",
