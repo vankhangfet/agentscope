@@ -75,13 +75,40 @@ async def list_presets() -> ListPresetsResponse:
     )
 
 
+async def _connected_tools(client: MCPClient) -> list:
+    """List one client's tools, connecting first when it is stateful.
+
+    A stateful client needs a live session before it can answer, so the
+    connection is opened here and always closed again — the caller owns
+    only a throwaway copy, never the stored record, so nothing leaks
+    and the library keeps no connection state.
+
+    Args:
+        client (`MCPClient`):
+            The client to list from.
+
+    Returns:
+        `list`: The client's tools.
+    """
+    if not client.is_stateful:
+        return await client.list_tools()
+    await client.connect()
+    try:
+        return await client.list_tools()
+    finally:
+        await client.close()
+
+
 async def _tool_group(record: MCPRecord) -> McpToolGroupView:
     """List one installed MCP's tools, or none of them on any failure.
 
-    A server that is down, slow, or misbehaving — a stateful one with
-    no live session included — simply contributes an empty group: this
-    listing is advisory, for picking tool names, so it carries no error
-    field and a broken server stays silent rather than loud.
+    A stateful record — the default for preset and hub installs — is
+    listed through a throwaway copy of its client, connected and closed
+    inside the budget, mirroring how a workspace starts one without
+    touching the stored record. A server that is down, slow, or
+    misbehaving simply contributes an empty group: this listing is
+    advisory, for picking tool names, so it carries no error field and
+    a broken server stays silent rather than loud.
 
     Args:
         record (`MCPRecord`):
@@ -91,9 +118,13 @@ async def _tool_group(record: MCPRecord) -> McpToolGroupView:
         `McpToolGroupView`:
             The group for this MCP, its tools possibly empty.
     """
+    # A copy, not the stored instance: connecting mutates connection
+    # state, and the record is the library's desired state, not a live
+    # session (a workspace copies for the same reason).
+    client = MCPClient.model_validate(record.client.model_dump(mode="json"))
     try:
         tools = await asyncio.wait_for(
-            record.client.list_tools(),
+            _connected_tools(client),
             timeout=TOOL_LIST_TIMEOUT,
         )
     except Exception:
@@ -119,14 +150,14 @@ async def list_mcp_tools(
     Distinct from ``GET /workspace/mcp``: that one reports the live
     clients of one running session, while this works from the library
     alone, so the agent form can offer tool names before any session
-    exists. Groups run concurrently, one per enabled MCP in library
-    order; unhealthy servers contribute an empty group, and the total
+    exists. Groups run concurrently, one per enabled MCP, sorted by MCP
+    name; unhealthy servers contribute an empty group, and the total
     counts tools, not servers.
     """
     records = [r for r in await storage.list_mcps(user_id) if r.enabled]
     groups = await asyncio.gather(*(_tool_group(r) for r in records))
     return ListMcpToolsResponse(
-        groups=list(groups),
+        groups=sorted(groups, key=lambda group: group.name),
         total=sum(len(group.tools) for group in groups),
     )
 

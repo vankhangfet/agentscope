@@ -1,4 +1,4 @@
-import { ChevronDown, Plus, Search } from 'lucide-react';
+import { ChevronDown, Loader2, Plus, Search } from 'lucide-react';
 import { useMemo, useState, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -36,9 +36,12 @@ interface Props {
  * dropdown of the tools the user's enabled MCPs offer, grouped by MCP
  * and filtered by a search over names and descriptions. Picking a tool
  * toggles it; the menu stays open for multi-select. The catalog is
- * advisory, so a custom name can still be typed alongside — and when
- * the listing fails or holds nothing, the dropdown disappears and the
- * field is exactly the typed editor it replaces.
+ * advisory, so a custom name can still be typed alongside — and once
+ * the listing has answered, if it failed or holds nothing, the
+ * dropdown disappears and the field is exactly the typed editor it
+ * replaces. While the first listing is in flight the button stays
+ * mounted, disabled behind a spinner, so the row does not reflow when
+ * it lands.
  */
 export function ToolsPickerField({
 	id,
@@ -50,7 +53,7 @@ export function ToolsPickerField({
 	onChange,
 }: Props) {
 	const { t } = useTranslation();
-	const { groups, hasTools } = useMcpTools();
+	const { groups, hasTools, loading } = useMcpTools();
 	const [draft, setDraft] = useState('');
 	const [search, setSearch] = useState('');
 
@@ -105,7 +108,7 @@ export function ToolsPickerField({
 				<ChipList items={value} onRemove={remove} />
 			)}
 			<div className="flex gap-2">
-				{hasTools && (
+				{(hasTools || loading) && (
 					<DropdownMenu
 						onOpenChange={(open) => {
 							if (open) setSearch('');
@@ -115,10 +118,15 @@ export function ToolsPickerField({
 							<Button
 								type="button"
 								variant="outline"
+								disabled={loading}
 								className="justify-between gap-1 font-normal shrink-0"
 							>
 								<span className="truncate">{t('tools-picker.select')}</span>
-								<ChevronDown className="size-3.5 text-muted-foreground" />
+								{loading ? (
+									<Loader2 className="size-3.5 animate-spin text-muted-foreground" />
+								) : (
+									<ChevronDown className="size-3.5 text-muted-foreground" />
+								)}
 							</Button>
 						</DropdownMenuTrigger>
 						<DropdownMenuContent align="start" className="w-80">

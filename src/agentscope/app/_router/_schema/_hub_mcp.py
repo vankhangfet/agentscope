@@ -205,6 +205,6 @@ class ListMcpToolsResponse(BaseModel):
     """The body of the user-level available-tools listing."""
 
     groups: list[McpToolGroupView] = Field(
-        description="One group per enabled MCP, in library order.",
+        description="One group per enabled MCP, sorted by MCP name.",
     )
     total: int = Field(description="How many tools the groups hold.")
