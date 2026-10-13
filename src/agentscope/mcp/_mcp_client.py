@@ -29,6 +29,35 @@ else:
     MCPTool = Any
     ToolBase = Any
 
+# The message prefix anyio puts on the cancellations its cancel scopes
+# deliver (see anyio's own ``is_anyio_cancellation``); matching it here
+# rather than importing anyio's private helper.
+_SCOPE_CANCELLED = "Cancelled via cancel scope "
+
+
+def _is_scope_delivered_cancel(exc: BaseException) -> bool:
+    """Whether ``exc`` is anyio interrupting this task, not a real cancel.
+
+    When a task-group child dies — a refused connection, for one — anyio
+    cancels the host task to break it out of its await, and the child's
+    real failure only surfaces when the group unwinds. Distinguished
+    from a genuine cancellation (a timed-out caller, a disconnecting
+    request) by the marker message anyio puts on the ones it delivers;
+    chained re-raises are walked the same way anyio walks them.
+    """
+    while isinstance(exc, asyncio.CancelledError):
+        if (
+            exc.args
+            and isinstance(exc.args[0], str)
+            and exc.args[0].startswith(_SCOPE_CANCELLED)
+        ):
+            return True
+        if isinstance(exc.__context__, asyncio.CancelledError):
+            exc = exc.__context__
+            continue
+        return False
+    return False
+
 
 class MCPClient(BaseModel):
     """The unified MCP client in AgentScope.
@@ -358,20 +387,49 @@ class MCPClient(BaseModel):
 
             self._is_connected = True
             logger.info("MCP connected: %s", self.name)
-        except BaseException:
-            # asyncio.CancelledError inherits BaseException, so a cancelled
-            # initialization must close every context entered so far. The
-            # close is shielded because an anyio cancel scope (a cancelled
-            # FastAPI request, for one) keeps cancelling every await inside
-            # it, which would otherwise abandon a live stdio subprocess.
+        except BaseException as original:
+            # asyncio.CancelledError inherits BaseException, so a
+            # cancelled initialization must close every context entered
+            # so far.
+            failure = original
             try:
-                await asyncio.shield(stack.aclose())
+                # Same task, unshielded: anyio cancel scopes may only be
+                # exited by the task that entered them, and a shield (or
+                # any other task) moves the exit off-task — anyio then
+                # aborts the unwind mid-way and delivers a cancellation
+                # back to THIS task, which replaces the real failure
+                # with a stray CancelledError no `except Exception` can
+                # absorb. A genuine outer cancellation still gets
+                # through: it re-delivers on every await below, so the
+                # unwind cannot complete and the cancel survives.
+                await stack.aclose()
+            except BaseException as teardown_exc:
+                if _is_scope_delivered_cancel(original) and isinstance(
+                    teardown_exc,
+                    Exception,
+                ):
+                    # anyio interrupts the host task with a scoped cancel
+                    # the moment a child task dies (a refused connection,
+                    # for one); the child's real failure only surfaces
+                    # when the task group unwinds, here. Prefer it — the
+                    # cancel was a placeholder, not a cancellation.
+                    failure = teardown_exc
+                # Any other teardown error never masks the original.
             finally:
                 self._client = None
                 self._stack = None
                 self._session = None
                 self._is_connected = False
-            raise
+            if failure is original and _is_scope_delivered_cancel(original):
+                # A scoped cancel with nothing behind it (an internal
+                # scope withdrew without leaving a failure behind) must
+                # not escape as a CancelledError either — callers catch
+                # `Exception`, not `BaseException`.
+                failure = RuntimeError(
+                    f"Initializing MCP '{self.name}' was interrupted "
+                    f"before the connection could be established.",
+                )
+            raise failure
 
     async def close(self, ignore_errors: bool = True) -> None:
         """Close the MCP connection (for stateful connections only).

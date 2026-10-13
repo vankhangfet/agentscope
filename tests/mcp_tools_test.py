@@ -55,15 +55,18 @@ def _record(
     name: str,
     enabled: bool = True,
     stateful: bool = False,
+    id: str | None = None,
 ) -> MCPRecord:
     """A library record whose client never needs a real connection.
 
     The tests answer ``list_tools`` at the class level, so the config's
     URL is only a placeholder — nothing dials it.
     """
+    record_kwargs = {"user_id": "alice", "enabled": enabled}
+    if id is not None:
+        record_kwargs["id"] = id
     return MCPRecord(
-        user_id="alice",
-        enabled=enabled,
+        **record_kwargs,
         client=MCPClient(
             name=name,
             is_stateful=stateful,
@@ -132,9 +135,9 @@ class McpToolsTest(IsolatedAsyncioTestCase):
         """Storage order is arbitrary (a redis set), so the listing
         imposes one: groups come back sorted by MCP name."""
         await self._install(
-            _record("zulu"),
-            _record("alpha"),
-            _record("mike", enabled=False),
+            _record("zulu", id="z-first"),
+            _record("alpha", id="a-second"),
+            _record("mike", enabled=False, id="m-third"),
         )
         with patch.object(
             MCPClient,
@@ -248,6 +251,87 @@ class McpToolsTest(IsolatedAsyncioTestCase):
         self.assertEqual(by_name["broken"], [])
         # Only real tools count, the broken server's none of them.
         self.assertEqual(body["total"], 1)
+
+
+    async def test_a_failing_stateful_connect_is_an_empty_group_stdio(
+        self,
+    ) -> None:
+        """A stateful server dying at startup — the bad-token preset
+        shape — must not take the route down (its cleanup used to leak
+        a scope-delivered cancellation). No patching: the connect is
+        real."""
+        import sys as _sys
+
+        from agentscope.mcp import StdioMCPConfig
+
+        healthy = MCPRecord(
+            user_id="alice",
+            client=MCPClient(
+                name="alpha",
+                is_stateful=False,
+                mcp_config=HttpMCPConfig(
+                    url="https://alpha.invalid/mcp",
+                ),
+            ),
+        )
+        doomed = MCPRecord(
+            user_id="alice",
+            client=MCPClient(
+                name="doomed",
+                is_stateful=True,
+                mcp_config=StdioMCPConfig(
+                    command=_sys.executable,
+                    args=["-c", "import sys; sys.exit(1)"],
+                ),
+            ),
+        )
+        await self._install(healthy, doomed)
+        with patch.object(
+            MCPClient,
+            "list_tools",
+            new=self._serving(alpha=[("search", "Search issues")]),
+        ):
+            response = self._client.get("/mcp/tools", headers=HEADERS)
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        by_name = {g["name"]: g["tools"] for g in body["groups"]}
+        self.assertEqual(
+            [t["name"] for t in by_name["alpha"]],
+            ["mcp__alpha__search"],
+        )
+        self.assertEqual(by_name["doomed"], [])
+
+    async def test_a_failing_stateful_connect_is_an_empty_group_http(
+        self,
+    ) -> None:
+        """An unreachable stateful HTTP server is the same empty-group
+        story — nothing dials port 1 in good faith."""
+        healthy = _record("alpha")
+        doomed = MCPRecord(
+            user_id="alice",
+            client=MCPClient(
+                name="deadport",
+                is_stateful=True,
+                mcp_config=HttpMCPConfig(url="http://127.0.0.1:1/mcp"),
+            ),
+        )
+        await self._install(healthy, doomed)
+        with patch.object(
+            MCPClient,
+            "list_tools",
+            new=self._serving(alpha=[("search", "Search issues")]),
+        ):
+            response = self._client.get("/mcp/tools", headers=HEADERS)
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        by_name = {g["name"]: g["tools"] for g in body["groups"]}
+        self.assertEqual(
+            [t["name"] for t in by_name["alpha"]],
+            ["mcp__alpha__search"],
+        )
+        self.assertEqual(by_name["deadport"], [])
 
     @staticmethod
     def _serving(**tools_by_mcp: Any) -> Any:
