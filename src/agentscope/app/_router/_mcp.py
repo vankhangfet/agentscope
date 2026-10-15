@@ -7,6 +7,7 @@ Installing from a hub or creating from a preset only writes here;
 putting an MCP into a workspace stays a separate, explicit act.
 """
 import asyncio
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import ValidationError
@@ -43,8 +44,12 @@ mcp_router = APIRouter(prefix="/mcp", tags=["mcp"])
 PRESET_HUB_ID = "preset"
 
 # The per-server budget for listing tools. One unreachable server must
-# not hold the whole listing hostage; see ``_tool_group``.
-TOOL_LIST_TIMEOUT = 15.0
+# not hold the whole listing hostage; see ``_tool_group``. Generous on
+# purpose: a stateful stdio server's first start (npx downloading its
+# package, uvx resolving) can easily exceed 15s on Windows.
+TOOL_LIST_TIMEOUT = 45.0
+
+logger = logging.getLogger(__name__)
 
 
 @mcp_router.get("")
@@ -127,7 +132,14 @@ async def _tool_group(record: MCPRecord) -> McpToolGroupView:
             _connected_tools(client),
             timeout=TOOL_LIST_TIMEOUT,
         )
-    except Exception:
+    except Exception as exc:
+        # Silent in the response (advisory listing), loud in the log so
+        # "why are my tools not listed" is answerable from the console.
+        logger.warning(
+            "Tool listing for MCP %r failed (group left empty): %r",
+            record.client.name,
+            exc,
+        )
         tools = []
     return McpToolGroupView(
         name=record.client.name,
