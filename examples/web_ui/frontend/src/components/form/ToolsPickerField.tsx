@@ -84,13 +84,17 @@ export function ToolsPickerField({
 	const filtered = useMemo(() => {
 		const q = search.trim().toLowerCase();
 		if (!q) return groups;
+		// ``description`` is nullable in the listing — a tool without
+		// one must not crash the filter when the user searches.
 		return groups
 			.map((group) => ({
 				...group,
 				tools: group.tools.filter(
 					(tool) =>
 						tool.name.toLowerCase().includes(q) ||
-						tool.description.toLowerCase().includes(q),
+						(tool.description ?? '')
+							.toLowerCase()
+							.includes(q),
 				),
 			}))
 			.filter((group) => group.tools.length > 0);
