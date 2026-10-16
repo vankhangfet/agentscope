@@ -36,12 +36,15 @@ interface Props {
  * dropdown of the tools the user's enabled MCPs offer, grouped by MCP
  * and filtered by a search over names and descriptions. Picking a tool
  * toggles it; the menu stays open for multi-select. The catalog is
- * advisory, so a custom name can still be typed alongside — and once
- * the listing has answered, if it failed or holds nothing, the
- * dropdown disappears and the field is exactly the typed editor it
- * replaces. While the first listing is in flight the button stays
- * mounted, disabled behind a spinner, so the row does not reflow when
- * it lands.
+ * advisory, so a custom name can still be typed alongside. The dropdown
+ * stays mounted whenever the listing came back with at least one
+ * enabled MCP — a server that could not be reached (common for a
+ * freshly installed MCP) shows up under its name with the reason, so
+ * the user is never left with an empty field and no clue why. Only a
+ * listing that failed outright, or an empty library, drops the dropdown
+ * and leaves the typed editor it replaces. While the first listing is
+ * in flight the button stays mounted, disabled behind a spinner, so the
+ * row does not reflow when it lands.
  */
 export function ToolsPickerField({
 	id,
@@ -85,7 +88,9 @@ export function ToolsPickerField({
 		const q = search.trim().toLowerCase();
 		if (!q) return groups;
 		// ``description`` is nullable in the listing — a tool without
-		// one must not crash the filter when the user searches.
+		// one must not crash the filter when the user searches. A failed
+		// or empty group has no tools to match, so a search hides it;
+		// its reason is only shown in the unfiltered view.
 		return groups
 			.map((group) => ({
 				...group,
@@ -176,6 +181,23 @@ export function ToolsPickerField({
 													</div>
 												</DropdownMenuCheckboxItem>
 											))}
+											{/* A reachable server with no tools, or one that
+											    failed to answer: say so under its name instead
+											    of rendering an empty, silent group — the whole
+											    point of keeping it visible. */}
+											{group.tools.length === 0 && (
+												<div
+													className={
+														group.error
+															? 'px-2 py-1.5 text-xs text-destructive'
+															: 'px-2 py-1.5 text-xs text-muted-foreground'
+													}
+												>
+													{group.error
+														? t('tools-picker.group-failed')
+														: t('tools-picker.group-empty')}
+												</div>
+											)}
 										</DropdownMenuGroup>
 									))
 								)}

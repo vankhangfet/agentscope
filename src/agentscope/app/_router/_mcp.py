@@ -33,6 +33,7 @@ from ._schema import (
     McpToolGroupView,
     McpToolView,
     PresetView,
+    TestMcpResult,
     UpdateMCPRequest,
 )
 
@@ -111,9 +112,10 @@ async def _tool_group(record: MCPRecord) -> McpToolGroupView:
     listed through a throwaway copy of its client, connected and closed
     inside the budget, mirroring how a workspace starts one without
     touching the stored record. A server that is down, slow, or
-    misbehaving simply contributes an empty group: this listing is
-    advisory, for picking tool names, so it carries no error field and
-    a broken server stays silent rather than loud.
+    misbehaving contributes a group with empty ``tools`` and an
+    ``error`` saying why: this listing is advisory, for picking tool
+    names, so one broken server never sinks the others — but it stays
+    visible in the picker with its reason rather than vanishing.
 
     Args:
         record (`MCPRecord`):
@@ -127,26 +129,40 @@ async def _tool_group(record: MCPRecord) -> McpToolGroupView:
     # state, and the record is the library's desired state, not a live
     # session (a workspace copies for the same reason).
     client = MCPClient.model_validate(record.client.model_dump(mode="json"))
+    error: str | None = None
     try:
         tools = await asyncio.wait_for(
             _connected_tools(client),
             timeout=TOOL_LIST_TIMEOUT,
         )
     except Exception as exc:
-        # Silent in the response (advisory listing), loud in the log so
-        # "why are my tools not listed" is answerable from the console.
+        # Loud in the log so "why are my tools not listed" is answerable
+        # from the console, and now also surfaced on the group itself:
+        # an enabled MCP whose server could not be reached still shows
+        # up in the picker — with this reason — instead of vanishing and
+        # leaving the user no tools to choose from. The message is kept
+        # short and human; the full repr stays in the log.
         logger.warning(
             "Tool listing for MCP %r failed (group left empty): %r",
             record.client.name,
             exc,
         )
         tools = []
+        if isinstance(exc, asyncio.TimeoutError):
+            error = (
+                "Timed out listing tools — the server did not respond "
+                f"within {int(TOOL_LIST_TIMEOUT)}s."
+            )
+        else:
+            reason = str(exc).strip() or exc.__class__.__name__
+            error = f"Could not list tools: {reason}"
     return McpToolGroupView(
         name=record.client.name,
         tools=[
             McpToolView(name=tool.name, description=tool.description)
             for tool in tools
         ],
+        error=error,
     )
 
 
@@ -163,8 +179,9 @@ async def list_mcp_tools(
     clients of one running session, while this works from the library
     alone, so the agent form can offer tool names before any session
     exists. Groups run concurrently, one per enabled MCP, sorted by MCP
-    name; unhealthy servers contribute an empty group, and the total
-    counts tools, not servers.
+    name; an unhealthy server contributes a group with empty ``tools``
+    and an ``error`` saying why, and the total counts tools, not
+    servers.
     """
     records = [r for r in await storage.list_mcps(user_id) if r.enabled]
     groups = await asyncio.gather(*(_tool_group(r) for r in records))
@@ -433,3 +450,73 @@ async def delete_mcp(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"No installed MCP with id {mcp_id!r}.",
         )
+
+
+@mcp_router.post("/{mcp_id}/test")
+async def test_mcp(
+    mcp_id: str,
+    user_id: str = Depends(get_current_user_id),
+    storage: StorageBase = Depends(get_storage),
+) -> TestMcpResult:
+    """Check that one installed MCP actually connects and answers.
+
+    Unlike install and re-key — which never dial the server — this is
+    the explicit "does my integration work" button: it walks a
+    throwaway copy of the record's client through connect/list/close
+    (the same path ``/mcp/tools`` uses per group) within the per-server
+    budget, so the stored record is never mutated and no connection
+    leaks. A wrong API key, an unreachable host, or a server that dies
+    at startup is reported as ``ok=False`` with the reason in
+    ``detail`` — a 200 with failure data, like the credential test, not
+    a thrown error — so the UI can show it inline. On success ``detail``
+    names the tool count and ``tool_count`` carries it.
+
+    Raises:
+        `HTTPException`: 404 if the MCP is not in the caller's library.
+    """
+    record = await storage.get_mcp(user_id, mcp_id)
+    if record is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No installed MCP with id {mcp_id!r}.",
+        )
+
+    # A copy, not the stored instance: connecting mutates connection
+    # state, and the record is desired state, not a live session — the
+    # same reason ``_tool_group`` copies before listing.
+    client = MCPClient.model_validate(record.client.model_dump(mode="json"))
+    try:
+        tools = await asyncio.wait_for(
+            _connected_tools(client),
+            timeout=TOOL_LIST_TIMEOUT,
+        )
+    except asyncio.TimeoutError:
+        logger.warning(
+            "Connection test for MCP %r timed out.",
+            record.client.name,
+        )
+        return TestMcpResult(
+            ok=False,
+            detail=(
+                "Timed out connecting — the server did not respond "
+                f"within {int(TOOL_LIST_TIMEOUT)}s."
+            ),
+        )
+    except Exception as exc:
+        logger.warning(
+            "Connection test for MCP %r failed: %r",
+            record.client.name,
+            exc,
+        )
+        reason = str(exc).strip() or exc.__class__.__name__
+        return TestMcpResult(
+            ok=False,
+            detail=f"Could not connect: {reason}",
+        )
+
+    count = len(tools)
+    return TestMcpResult(
+        ok=True,
+        detail=f"Connected successfully — {count} tool(s) available.",
+        tool_count=count,
+    )

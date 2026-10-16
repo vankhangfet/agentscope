@@ -783,18 +783,36 @@ export interface McpTool {
 
 /**
  * The tools one installed MCP offers. An empty `tools` array means the
- * server could not be reached — the listing carries no per-group error.
+ * server could not be reached; `error` then says why, so the picker can
+ * still show the server with its reason instead of hiding it.
  */
 export interface McpToolGroup {
 	/** The MCP name the tools belong to. */
 	name: string;
 	tools: McpTool[];
+	/** Why the listing failed, when it did; `null`/absent on success. */
+	error?: string | null;
 }
 
 export interface ListMcpToolsResponse {
 	groups: McpToolGroup[];
 	/** How many tools the groups hold — not how many servers answered. */
 	total: number;
+}
+
+/**
+ * The outcome of a connection test for one installed MCP, from
+ * `POST /mcp/{mcp_id}/test`. A connection failure is data, not a thrown
+ * error: `ok` is `false` and `detail` carries the reason, so the UI
+ * shows it inline instead of catching a request error.
+ */
+export interface TestMcpResult {
+	/** Whether the server connected and answered a listing. */
+	ok: boolean;
+	/** The tool count on success, or the failure reason. */
+	detail: string;
+	/** How many tools the server advertised; 0 on failure. */
+	tool_count: number;
 }
 
 // ─── Installed MCPs and skills ────────────────────────────────────────────────

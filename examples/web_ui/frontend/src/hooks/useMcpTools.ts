@@ -26,11 +26,15 @@ export function useMcpTools() {
 		loading: isPending,
 		error: error as Error | null,
 		/**
-		 * Whether there is anything worth showing a picker for. A failed
-		 * query or a library whose servers all came back empty hides the
-		 * dropdown, and the field degrades to a typed input — a listing
-		 * that cannot be trusted should not be offered.
+		 * Whether there is anything worth showing a picker for. The
+		 * dropdown opens whenever the listing came back with at least one
+		 * enabled MCP — even if every server failed to answer — because a
+		 * freshly installed MCP that cannot be reached yet should still be
+		 * visible with the reason, not silently hidden, leaving the user
+		 * with nothing to pick. Only a request that failed outright (no
+		 * groups at all) hides the dropdown and degrades the field to a
+		 * typed input.
 		 */
-		hasTools: !error && groups.some((group) => group.tools.length > 0),
+		hasTools: !error && groups.length > 0,
 	};
 }

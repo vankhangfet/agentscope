@@ -494,7 +494,9 @@
 		"empty": "No tools yet.",
 		"add": "Add tool",
 		"custom-label": "Or type a custom tool name",
-		"custom-hint": "Custom names can also be typed."
+		"custom-hint": "Custom names can also be typed.",
+		"group-failed": "Couldn't list tools. Check this MCP's configuration.",
+		"group-empty": "This MCP exposes no tools."
 	},
 	"realtime": {
 		"selectModel": "Voice model",
@@ -1087,6 +1089,16 @@
 		"loadFailedTitle": "Couldn't reach the server",
 		"loadFailedDescription": "Check the server URL and that the service is running.",
 		"retry": "Retry",
+		"test": {
+			"action": "Test",
+			"title": "Test {{name}}",
+			"description": "Connects to the server and checks that the integration works.",
+			"running": "Testing connection…",
+			"run": "Test again",
+			"close": "Close",
+			"successTitle": "Connection successful",
+			"failureTitle": "Connection failed"
+		},
 		"integration": {
 			"sectionLabel": "Add integration",
 			"addTitle": "Add {{name}}",

@@ -5,6 +5,7 @@ import type {
 	ListMcpToolsResponse,
 	ListPresetsResponse,
 	MCPView,
+	TestMcpResult,
 	UpdateMCPRequest,
 } from './types';
 
@@ -27,9 +28,9 @@ export const mcpApi = {
 	 * The tools the user's enabled MCPs offer, straight from the library
 	 * — unlike the workspace listing this needs no session, so the agent
 	 * form can offer names before one exists. Silent by design: a server
-	 * that is down just yields an empty group, and a failed listing
-	 * degrades the picker to a typed input rather than toasting at the
-	 * user mid-dialog.
+	 * that is down yields a group with empty tools and an `error` saying
+	 * why, so the picker keeps showing it mid-dialog instead of toasting
+	 * at the user.
 	 */
 	tools: () => client.get<ListMcpToolsResponse>('/mcp/tools', undefined, { silent: true }),
 
@@ -62,4 +63,20 @@ export const mcpApi = {
 	 * it — the relation is derived by name, not a foreign key.
 	 */
 	remove: (mcpId: string) => client.delete(`/mcp/${encodeURIComponent(mcpId)}`),
+
+	/**
+	 * Checks that one installed MCP actually connects and answers — the
+	 * explicit "does my integration work" button, unlike create/update
+	 * which never dial the server. A connection failure is reported as
+	 * `ok: false` data at HTTP 200 (like the credential test), so the
+	 * caller shows it inline; only a missing record is a thrown 404.
+	 * Silent so the inline banner, not a toast, carries the outcome.
+	 */
+	test: (mcpId: string) =>
+		client.post<TestMcpResult>(
+			`/mcp/${encodeURIComponent(mcpId)}/test`,
+			null,
+			undefined,
+			{ silent: true },
+		),
 };

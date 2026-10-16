@@ -199,6 +199,17 @@ class McpToolGroupView(BaseModel):
             "The MCP's tools, empty when it could not be reached."
         ),
     )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Why the listing failed, when it did. ``None`` on success. "
+            "An enabled MCP whose server could not be reached still "
+            "yields a group — now carrying this message — so the picker "
+            "can show the server and say why its tools are missing, "
+            "rather than hiding it and leaving the user with nothing to "
+            "pick."
+        ),
+    )
 
 
 class ListMcpToolsResponse(BaseModel):
@@ -208,3 +219,29 @@ class ListMcpToolsResponse(BaseModel):
         description="One group per enabled MCP, sorted by MCP name.",
     )
     total: int = Field(description="How many tools the groups hold.")
+
+
+class TestMcpResult(BaseModel):
+    """The outcome of a connection test for one installed MCP.
+
+    A connection failure is data, not an error: ``ok`` is ``False`` and
+    ``detail`` carries the human-readable reason, so the UI can show a
+    red banner rather than a thrown request error. On success ``ok`` is
+    ``True`` and ``tool_count`` reports how many tools the server
+    advertised — enough to tell "it connected" from "it connected but
+    exposes nothing".
+    """
+
+    ok: bool = Field(
+        description="Whether the server connected and answered a listing.",
+    )
+    detail: str = Field(
+        description=(
+            "A human-readable summary — the tool count on success, or "
+            "the failure reason."
+        ),
+    )
+    tool_count: int = Field(
+        default=0,
+        description="How many tools the server advertised; 0 on failure.",
+    )

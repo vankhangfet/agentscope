@@ -494,7 +494,9 @@
 		"empty": "暂无工具。",
 		"add": "添加工具",
 		"custom-label": "或输入自定义工具名称",
-		"custom-hint": "也可以直接输入自定义名称。"
+		"custom-hint": "也可以直接输入自定义名称。",
+		"group-failed": "无法列出工具，请检查该 MCP 的配置。",
+		"group-empty": "该 MCP 未提供任何工具。"
 	},
 	"realtime": {
 		"selectModel": "语音模型",
@@ -1087,6 +1089,16 @@
 		"loadFailedTitle": "无法连接服务",
 		"loadFailedDescription": "请检查服务地址，以及服务是否已启动。",
 		"retry": "重试",
+		"test": {
+			"action": "测试",
+			"title": "测试 {{name}}",
+			"description": "连接到服务并检查该集成是否可用。",
+			"running": "正在测试连接…",
+			"run": "重新测试",
+			"close": "关闭",
+			"successTitle": "连接成功",
+			"failureTitle": "连接失败"
+		},
 		"integration": {
 			"sectionLabel": "添加集成",
 			"addTitle": "添加 {{name}}",

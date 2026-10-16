@@ -215,6 +215,8 @@ class McpToolsTest(IsolatedAsyncioTestCase):
                             "description": "Search issues",
                         },
                     ],
+                    # A successful listing carries no error.
+                    "error": None,
                 },
             ],
         )
@@ -251,6 +253,37 @@ class McpToolsTest(IsolatedAsyncioTestCase):
         self.assertEqual(by_name["broken"], [])
         # Only real tools count, the broken server's none of them.
         self.assertEqual(body["total"], 1)
+        # The broken server stays visible with a reason; the healthy
+        # one carries none. This is what keeps the picker from hiding a
+        # freshly installed MCP whose server cannot be reached yet.
+        by_error = {g["name"]: g["error"] for g in body["groups"]}
+        self.assertIsNone(by_error["alpha"])
+        self.assertIsNotNone(by_error["broken"])
+        self.assertIn("not connected", by_error["broken"])
+
+    async def test_a_timed_out_listing_reports_a_timeout(self) -> None:
+        """A server that does not answer within the budget contributes
+        an empty group whose error names the timeout, distinct from a
+        generic failure — so the picker can tell "slow" from "broken"."""
+        import asyncio
+
+        await self._install(_record("slow"))
+
+        async def hangs(self: MCPClient) -> list:
+            raise asyncio.TimeoutError
+
+        with patch.object(
+            MCPClient,
+            "list_tools",
+            new=self._serving(slow=hangs),
+        ):
+            body = self._tools()
+
+        group = body["groups"][0]
+        self.assertEqual(group["name"], "slow")
+        self.assertEqual(group["tools"], [])
+        self.assertIsNotNone(group["error"])
+        self.assertIn("Timed out", group["error"])
 
 
     async def test_a_failing_stateful_connect_is_an_empty_group_stdio(
@@ -301,6 +334,9 @@ class McpToolsTest(IsolatedAsyncioTestCase):
             ["mcp__alpha__search"],
         )
         self.assertEqual(by_name["doomed"], [])
+        by_error = {g["name"]: g["error"] for g in body["groups"]}
+        self.assertIsNone(by_error["alpha"])
+        self.assertIsNotNone(by_error["doomed"])
 
     async def test_a_failing_stateful_connect_is_an_empty_group_http(
         self,
@@ -332,6 +368,9 @@ class McpToolsTest(IsolatedAsyncioTestCase):
             ["mcp__alpha__search"],
         )
         self.assertEqual(by_name["deadport"], [])
+        by_error = {g["name"]: g["error"] for g in body["groups"]}
+        self.assertIsNone(by_error["alpha"])
+        self.assertIsNotNone(by_error["deadport"])
 
     @staticmethod
     def _serving(**tools_by_mcp: Any) -> Any:
