@@ -938,9 +938,8 @@ class ChatService:
                 # servers from its library — best-effort, idempotent.
                 await attach_allowlisted_mcps(
                     storage=self._storage,
-                    allowlist=(
-                        agent_record.data.chat_config.tools or []
-                    ),
+                    allowlist=agent_record.data.chat_config.tools
+                    or [],
                     user_id=user_id,
                     agent_id=agent_id,
                     session_id=session_id,

@@ -12,7 +12,9 @@ session workspace if it is not there already.
 
 Attaching is best-effort and idempotent: a server that fails to start
 is logged and skipped — the run proceeds without it, exactly like a
-hand attach through the chat panel."""
+hand attach through the chat panel. Unlike that manual attach, a
+disabled library record is honoured here: auto-attachment follows the
+disable toggle, manual attachment is explicit intent."""
 import logging
 from typing import TYPE_CHECKING
 
