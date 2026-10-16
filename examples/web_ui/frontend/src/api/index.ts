@@ -65,6 +65,7 @@ export {
 	listDiscussions,
 	getDiscussion,
 	cancelDiscussion,
+	rerunDiscussion,
 } from './discussion';
 export { embeddingModelApi, modelApi, realtimeModelApi, ttsModelApi } from './model';
 export { realtimeApi } from './realtime';

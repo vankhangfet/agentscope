@@ -1,13 +1,15 @@
 import { format } from 'date-fns';
-import { ArrowLeft, Ban, MessagesSquare, ScrollText, Star } from 'lucide-react';
+import { ArrowLeft, Ban, MessagesSquare, Pencil, RotateCcw, ScrollText, Star } from 'lucide-react';
 import * as React from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 
+import { DiscussionSetupPanel } from './components/DiscussionSetupPanel';
 import { DiscussionStatusBadge } from './components/DiscussionStatusBadge';
 import { LiveSpeakerBar } from './components/LiveSpeakerBar';
 import { DISCUSSION_TERMINAL_STATUSES } from '@/api';
 import type { RoundArgument, RoundEvaluation } from '@/api';
+import { CreateDiscussionDialog } from '@/components/dialog/CreateDiscussionDialog';
 import { DeleteDialog } from '@/components/dialog/DeleteDialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -19,7 +21,7 @@ import {
 	EmptyTitle,
 } from '@/components/ui/empty';
 import { Spinner } from '@/components/ui/spinner';
-import { useCancelDiscussion, useDiscussion } from '@/hooks/useDiscussions';
+import { useCancelDiscussion, useDiscussion, useRerunDiscussion } from '@/hooks/useDiscussions';
 import { useTranslation } from '@/i18n/useI18n';
 import { cn } from '@/lib/utils';
 
@@ -131,8 +133,25 @@ function RoundSection({ round }: { round: RoundEvaluation }) {
 export function DiscussionDetailPage() {
 	const { t } = useTranslation();
 	const { discussionId = '' } = useParams<{ discussionId: string }>();
+	const navigate = useNavigate();
 	const [confirmCancel, setConfirmCancel] = React.useState(false);
+	const [editRerunOpen, setEditRerunOpen] = React.useState(false);
 	const cancel = useCancelDiscussion();
+	const rerun = useRerunDiscussion();
+
+	// Rerun = clone the config into a fresh discussion server-side, then
+	// jump to it. Edit-&-rerun instead opens the create dialog seeded
+	// from this discussion, so the user can change the debaters first.
+	const handleRerun = async () => {
+		if (rerun.isPending) return;
+		try {
+			const res = await rerun.mutateAsync(discussionId);
+			toast.success(t('discussion.rerun.started'));
+			navigate(`/discussion/${res.discussion_id}`);
+		} catch {
+			// The API client already toasted the failure detail.
+		}
+	};
 
 	// Poll only while the debate is live: the effect flips the flag on
 	// every fetch, and the final fetch that sees a terminal status is
@@ -213,6 +232,34 @@ export function DiscussionDetailPage() {
 								{t('discussion.detail.cancel')}
 							</Button>
 						)}
+						{/* Rerun / edit are offered once the debate is over —
+						    cloning a still-running config would race a record
+						    the engine is actively mutating. */}
+						{!live && (
+							<>
+								<Button
+									variant="outline"
+									size="sm"
+									disabled={rerun.isPending}
+									onClick={() => void handleRerun()}
+								>
+									{rerun.isPending ? (
+										<Spinner className="size-3.5" />
+									) : (
+										<RotateCcw />
+									)}
+									{t('discussion.rerun.action')}
+								</Button>
+								<Button
+									variant="outline"
+									size="sm"
+									onClick={() => setEditRerunOpen(true)}
+								>
+									<Pencil />
+									{t('discussion.edit.rerun.action')}
+								</Button>
+							</>
+						)}
 					</div>
 					<div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
 						<span className="font-mono">{discussionId}</span>
@@ -235,6 +282,8 @@ export function DiscussionDetailPage() {
 
 				<div className="flex-1 space-y-5 overflow-y-auto px-4 py-4">
 					{live && <LiveSpeakerBar discussion={discussion} />}
+
+					<DiscussionSetupPanel discussion={discussion} />
 
 					{discussion.conclusion != null && (
 						<section className="rounded-lg border border-green-600/30 bg-green-500/5 p-4">
@@ -291,6 +340,16 @@ export function DiscussionDetailPage() {
 						// The API client already toasted the failure detail.
 					}
 				}}
+			/>
+
+			{/* Edit & rerun: the create dialog seeded from this discussion.
+			    Submitting creates a NEW discussion (the source is never
+			    mutated); on success we navigate to it. */}
+			<CreateDiscussionDialog
+				open={editRerunOpen}
+				onOpenChange={setEditRerunOpen}
+				initial={discussion}
+				onCreated={(newId) => navigate(`/discussion/${newId}`)}
 			/>
 		</div>
 	);

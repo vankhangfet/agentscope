@@ -8,7 +8,7 @@ from ..deps import (
     get_storage,
 )
 from ..storage import DiscussionStatus, StorageBase
-from ..discussion import create_and_dispatch
+from ..discussion import create_and_dispatch, rerun_discussion
 from ._schema import (
     CreateDiscussionRequest,
     CreateDiscussionResponse,
@@ -182,6 +182,63 @@ async def cancel_discussion(
     """
     record = await engine.cancel(user_id, discussion_id)
     return DiscussionDetailResponse(data=record.data)
+
+
+@discussion_router.post(
+    "/{discussion_id}/rerun",
+    response_model=CreateDiscussionResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Rerun a discussion",
+)
+async def rerun_discussion_endpoint(
+    discussion_id: str,
+    user_id: str = Depends(get_current_user_id),
+    engine: DebateEngine = Depends(get_discussion_engine),
+    storage: StorageBase = Depends(get_storage),
+) -> CreateDiscussionResponse:
+    """Clone a discussion's configuration into a fresh run.
+
+    The source record is the history of a debate that already ran, so a
+    rerun never mutates it: its topic, debaters, judge and round ceiling
+    are copied into a new PENDING discussion that is dispatched on its
+    own id (:func:`agentscope.app.discussion.rerun_discussion`). To
+    rerun with changes, the client edits the configuration and creates
+    an ordinary new discussion instead — this endpoint is the
+    exact-copy path.
+
+    Args:
+        discussion_id (`str`):
+            The source discussion to clone from.
+        user_id (`str`):
+            Injected authenticated user id; also scopes the lookup, so
+            a caller can only rerun their own discussion.
+        engine (`DebateEngine`):
+            Injected discussion engine.
+        storage (`StorageBase`):
+            Injected application storage.
+
+    Returns:
+        `CreateDiscussionResponse`:
+            The new discussion's server-assigned identifier.
+
+    Raises:
+        `HTTPException`:
+            404 when the caller owns no such discussion.
+    """
+    try:
+        record = await rerun_discussion(
+            user_id,
+            discussion_id,
+            engine=engine,
+            storage=storage,
+            trigger="api",
+        )
+    except KeyError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Discussion {discussion_id!r} not found.",
+        ) from None
+    return CreateDiscussionResponse(discussion_id=record.id)
 
 
 # The detail route stays last: fixed segments precede ``/{discussion_id}``

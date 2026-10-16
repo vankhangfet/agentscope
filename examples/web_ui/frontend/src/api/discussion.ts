@@ -45,3 +45,16 @@ export function cancelDiscussion(discussionId: string) {
 		null,
 	);
 }
+
+/**
+ * Rerun a discussion: clone its configuration (topic, debaters, judge,
+ * round ceiling) into a brand-new discussion and dispatch it. The
+ * source is left untouched; the response carries the new id. To rerun
+ * with changes, create a new discussion from an edited payload instead.
+ */
+export function rerunDiscussion(discussionId: string) {
+	return client.post<CreateDiscussionResponse>(
+		`/discussion/${discussionId}/rerun`,
+		null,
+	);
+}

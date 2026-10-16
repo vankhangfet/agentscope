@@ -524,6 +524,65 @@ class DiscussionRouterTest(IsolatedAsyncioTestCase):
             ).status_code,
             404,
         )
+        # Rerun of a missing source is a 404 too.
+        self.assertEqual(
+            self._client.post(
+                "/discussion/missing/rerun",
+                headers=HEADERS,
+            ).status_code,
+            404,
+        )
+
+    def test_rerun_clones_config_into_a_new_discussion(self) -> None:
+        """Rerun copies the source's config into a fresh run.
+
+        The new discussion is a different id, carries the same topic,
+        debaters, judge model and round ceiling, and runs to its own
+        completion — while the source record is left exactly as it was.
+        """
+        source_id = self._start(max_rounds=2)
+        source_done = self._poll(source_id, {"COMPLETED"})
+
+        rerun = self._client.post(
+            f"/discussion/{source_id}/rerun",
+            headers=HEADERS,
+        )
+        self.assertEqual(rerun.status_code, 201, rerun.text)
+        new_id = rerun.json()["discussion_id"]
+        self.assertNotEqual(new_id, source_id)
+
+        new_done = self._poll(new_id, {"COMPLETED"})
+        # Config carried over verbatim.
+        self.assertEqual(new_done["topic"], source_done["topic"])
+        self.assertEqual(new_done["max_rounds"], source_done["max_rounds"])
+        self.assertEqual(
+            [d["name"] for d in new_done["debaters"]],
+            [d["name"] for d in source_done["debaters"]],
+        )
+        self.assertEqual(
+            [
+                d["chat_model_config"]["model"]
+                for d in new_done["debaters"]
+            ],
+            [
+                d["chat_model_config"]["model"]
+                for d in source_done["debaters"]
+            ],
+        )
+        self.assertEqual(
+            new_done["judge"]["chat_model_config"]["model"],
+            source_done["judge"]["chat_model_config"]["model"],
+        )
+        # The rerun is its own run with its own trigger.
+        self.assertEqual(new_done["trigger"], "api")
+
+        # The source is untouched: still there, still COMPLETED, and the
+        # list now holds exactly the two of them.
+        after = self._data(source_id)
+        self.assertEqual(after["status"], "COMPLETED")
+        self.assertEqual(after["conclusion"], source_done["conclusion"])
+        listed = self._client.get("/discussion/", headers=HEADERS).json()
+        self.assertEqual(listed["total"], 2)
 
     def test_create_validation_rejections(self) -> None:
         """Structural bounds answer 422 before anything is dispatched."""
@@ -567,3 +626,5 @@ class DiscussionRouterTest(IsolatedAsyncioTestCase):
         self.assertIn("get", paths["/discussion/{discussion_id}"])
         self.assertIn("/discussion/{discussion_id}/cancel", paths)
         self.assertIn("post", paths["/discussion/{discussion_id}/cancel"])
+        self.assertIn("/discussion/{discussion_id}/rerun", paths)
+        self.assertIn("post", paths["/discussion/{discussion_id}/rerun"])

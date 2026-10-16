@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { cancelDiscussion, createDiscussion, getDiscussion, listDiscussions } from '../api';
+import { cancelDiscussion, createDiscussion, getDiscussion, listDiscussions, rerunDiscussion } from '../api';
 import type {
 	CreateDiscussionRequest,
 	Discussion,
@@ -79,6 +79,20 @@ export function useCreateDiscussion() {
 	const queryClient = useQueryClient();
 	return useMutation({
 		mutationFn: (body: CreateDiscussionRequest) => createDiscussion(body),
+		onSuccess: () => queryClient.invalidateQueries({ queryKey: DISCUSSIONS_KEY }),
+	});
+}
+
+/**
+ * Reruns a discussion — clones its config into a fresh one on the
+ * server — and refreshes the discussion views so the new run shows up
+ * in the list. Returns the create response carrying the new id, so a
+ * caller can navigate straight to it.
+ */
+export function useRerunDiscussion() {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: (discussionId: string) => rerunDiscussion(discussionId),
 		onSuccess: () => queryClient.invalidateQueries({ queryKey: DISCUSSIONS_KEY }),
 	});
 }

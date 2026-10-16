@@ -119,6 +119,62 @@ async def create_and_dispatch(
     return record
 
 
+async def rerun_discussion(
+    user_id: str,
+    discussion_id: str,
+    *,
+    engine: DebateEngine,
+    storage: StorageBase,
+    trigger: str = "manual",
+) -> DiscussionRecord:
+    """Clone a discussion's configuration into a fresh run.
+
+    A discussion record is the history of one debate; rather than
+    mutate a terminal (or still-running) record, a rerun copies the
+    source's *configuration* — topic, debaters, judge and round
+    ceiling — into a brand-new discussion and dispatches that. The
+    source is left untouched, so its rounds and conclusion remain a
+    faithful record, and the new discussion starts PENDING with its own
+    id. Edited reruns do not come here: those resend an edited payload
+    through :func:`create_and_dispatch` as an ordinary create.
+
+    Args:
+        user_id (`str`): The owner; also scopes the source lookup, so a
+            user can only rerun their own discussion.
+        discussion_id (`str`): The source discussion to clone from.
+        engine (`DebateEngine`): The engine to dispatch the clone
+            through.
+        storage (`StorageBase`): Where both the source is read and the
+            clone persists.
+        trigger (`str`, optional): What started the clone, recorded on
+            it. Defaults to ``manual``.
+
+    Returns:
+        `DiscussionRecord`: The new, dispatched PENDING record.
+
+    Raises:
+        `KeyError`: The source discussion does not exist for this user
+            — the router maps this to a 404.
+        `ValueError`: The source's own config somehow fails the create
+            rules (defensive; a persisted record normally cannot).
+    """
+    source = await storage.get_discussion(user_id, discussion_id)
+    if source is None:
+        raise KeyError(discussion_id)
+    # Deep-copied so the clone shares no mutable config object with the
+    # source — the engine mutates the new record's data in place.
+    return await create_and_dispatch(
+        user_id,
+        engine=engine,
+        storage=storage,
+        topic=source.data.topic,
+        debaters=[d.model_copy(deep=True) for d in source.data.debaters],
+        judge=source.data.judge.model_copy(deep=True),
+        max_rounds=source.data.max_rounds,
+        trigger=trigger,
+    )
+
+
 async def discussion(
     user_id: str,
     topic: str,
@@ -187,4 +243,5 @@ __all__ = [
     "configure_discussion",
     "create_and_dispatch",
     "discussion",
+    "rerun_discussion",
 ]

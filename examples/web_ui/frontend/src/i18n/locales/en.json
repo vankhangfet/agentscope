@@ -886,6 +886,29 @@
 			"noRoundsLive": "The debate is starting — arguments appear here as rounds complete.",
 			"noRoundsDone": "This discussion ended before any round completed."
 		},
+		"setup": {
+			"title": "Setup",
+			"debaterCount_one": "{{count}} debater",
+			"debaterCount_other": "{{count}} debaters",
+			"judge": "Judge",
+			"noStance": "No stance given.",
+			"defaultJudge": "Default impartial judge.",
+			"maxRounds": "Up to {{max}} rounds"
+		},
+		"rerun": {
+			"action": "Rerun",
+			"started": "Rerun started",
+			"failed": "Couldn't rerun the discussion"
+		},
+		"edit": {
+			"rerun": {
+				"action": "Edit & rerun",
+				"title": "Edit & rerun discussion",
+				"description": "Tweak the debaters, judge or rounds and start a new discussion. The original is left untouched.",
+				"submit": "Start new discussion",
+				"created": "New discussion started"
+			}
+		},
 		"live": {
 			"live": "Live",
 			"debaterSpeaking": "is making their argument…",

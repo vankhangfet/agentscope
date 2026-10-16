@@ -886,6 +886,29 @@
 			"noRoundsLive": "辩论正在开始——轮次完成后会显示在这里。",
 			"noRoundsDone": "该讨论在任何一轮完成之前就结束了。"
 		},
+		"setup": {
+			"title": "配置",
+			"debaterCount_one": "{{count}} 位辩手",
+			"debaterCount_other": "{{count}} 位辩手",
+			"judge": "裁判",
+			"noStance": "未提供立场。",
+			"defaultJudge": "默认中立裁判。",
+			"maxRounds": "最多 {{max}} 轮"
+		},
+		"rerun": {
+			"action": "重新运行",
+			"started": "已开始重新运行",
+			"failed": "无法重新运行该讨论"
+		},
+		"edit": {
+			"rerun": {
+				"action": "编辑并重新运行",
+				"title": "编辑并重新运行讨论",
+				"description": "调整辩手、裁判或轮次后开始一个新讨论。原讨论保持不变。",
+				"submit": "开始新讨论",
+				"created": "新讨论已开始"
+			}
+		},
 		"live": {
 			"live": "实时",
 			"debaterSpeaking": "正在陈述观点…",

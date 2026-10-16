@@ -2,7 +2,12 @@ import { Plus, Trash2 } from 'lucide-react';
 import * as React from 'react';
 import { toast } from 'sonner';
 
-import type { ChatModelConfig, CreateDiscussionRequest, DebaterConfig } from '@/api';
+import type {
+	ChatModelConfig,
+	CreateDiscussionRequest,
+	DebaterConfig,
+	DiscussionData,
+} from '@/api';
 import { LlmSelect } from '@/components/select/LlmSelect';
 import { Button } from '@/components/ui/button';
 import {
@@ -51,21 +56,49 @@ function freshForm(): { debaters: DebaterDraft[]; nextKey: number } {
 	};
 }
 
+/** Debater rows seeded from an existing discussion, plus the next key. */
+function formFromData(data: DiscussionData): {
+	debaters: DebaterDraft[];
+	nextKey: number;
+} {
+	const debaters = data.debaters.map((debater, i) => ({
+		key: i + 1,
+		name: debater.name,
+		systemPrompt: debater.system_prompt,
+		model: debater.chat_model_config,
+	}));
+	return { debaters, nextKey: debaters.length + 1 };
+}
+
 interface Props {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
+	/**
+	 * Seed the form from an existing discussion's configuration — the
+	 * "edit & rerun" path. Submitting still creates a brand-new
+	 * discussion; the source is never mutated. Omitted (or null) opens a
+	 * blank "New Discussion" form.
+	 */
+	initial?: DiscussionData | null;
+	/** Called with the new discussion's id once a create succeeds. */
+	onCreated?: (discussionId: string) => void;
 }
 
 /**
- * The "New Discussion" dialog: a topic, 1-6 debater rows (name, stance,
- * model), an optional judge and the round ceiling. Validation mirrors
- * the backend battery — blank topic, missing names/models or repeated
- * names keep the create button disabled; the count and round bounds are
- * enforced by the controls themselves.
+ * The discussion configuration dialog, in two modes. With no `initial`
+ * it is "New Discussion": a topic, 1-6 blank debater rows (name,
+ * stance, model), an optional judge and the round ceiling. With an
+ * `initial` discussion it becomes "Edit & rerun" — the same form seeded
+ * from that discussion's config, so the user can tweak the debaters and
+ * submit, creating a new discussion from the edited setup (the source
+ * is left untouched). Validation mirrors the backend battery — blank
+ * topic, missing names/models or repeated names keep the submit button
+ * disabled; the count and round bounds are enforced by the controls.
  */
-export function CreateDiscussionDialog({ open, onOpenChange }: Props) {
+export function CreateDiscussionDialog({ open, onOpenChange, initial, onCreated }: Props) {
 	const { t } = useTranslation();
 	const create = useCreateDiscussion();
+	const editing = initial != null;
 
 	const [topic, setTopic] = React.useState('');
 	const [debaters, setDebaters] = React.useState<DebaterDraft[]>(freshForm().debaters);
@@ -74,9 +107,26 @@ export function CreateDiscussionDialog({ open, onOpenChange }: Props) {
 	const [judgePrompt, setJudgePrompt] = React.useState('');
 	const [maxRounds, setMaxRounds] = React.useState(3);
 
-	// A closed dialog reopens blank, like the other create dialogs.
+	// On open, seed from `initial` when editing-and-rerunning, else go
+	// blank. On close, reset to blank like the other create dialogs so a
+	// stale prefill never bleeds into the next open.
 	React.useEffect(() => {
-		if (open) return;
+		if (open) {
+			if (initial) {
+				setTopic(initial.topic);
+				const seeded = formFromData(initial);
+				setDebaters(seeded.debaters);
+				nextKey.current = seeded.nextKey;
+				// The judge's default prompt is server-side, so a stored
+				// prompt equal to it would still prefill here; that is
+				// harmless — resubmitting it is a no-op the backend folds
+				// back to the same default.
+				setJudgeModel(initial.judge.chat_model_config);
+				setJudgePrompt(initial.judge.system_prompt ?? '');
+				setMaxRounds(initial.max_rounds);
+			}
+			return;
+		}
 		setTopic('');
 		const fresh = freshForm();
 		setDebaters(fresh.debaters);
@@ -84,7 +134,7 @@ export function CreateDiscussionDialog({ open, onOpenChange }: Props) {
 		setJudgeModel(null);
 		setJudgePrompt('');
 		setMaxRounds(3);
-	}, [open]);
+	}, [open, initial]);
 
 	const addDebater = () => {
 		// Mint the key outside the updater, keeping the updater pure.
@@ -138,9 +188,14 @@ export function CreateDiscussionDialog({ open, onOpenChange }: Props) {
 			};
 		}
 		try {
-			await create.mutateAsync(payload);
-			toast.success(t('discussion.create.created'));
+			const res = await create.mutateAsync(payload);
+			toast.success(
+				editing
+					? t('discussion.edit.rerun.created')
+					: t('discussion.create.created'),
+			);
 			onOpenChange(false);
+			onCreated?.(res.discussion_id);
 		} catch {
 			// The API client already toasted the failure detail.
 		}
@@ -150,8 +205,16 @@ export function CreateDiscussionDialog({ open, onOpenChange }: Props) {
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-[560px]">
 				<DialogHeader>
-					<DialogTitle>{t('discussion.create.title')}</DialogTitle>
-					<DialogDescription>{t('discussion.create.description')}</DialogDescription>
+					<DialogTitle>
+						{editing
+							? t('discussion.edit.rerun.title')
+							: t('discussion.create.title')}
+					</DialogTitle>
+					<DialogDescription>
+						{editing
+							? t('discussion.edit.rerun.description')
+							: t('discussion.create.description')}
+					</DialogDescription>
 				</DialogHeader>
 
 				<FieldGroup>
@@ -295,7 +358,11 @@ export function CreateDiscussionDialog({ open, onOpenChange }: Props) {
 					</Button>
 					<Button disabled={!valid || create.isPending} onClick={() => void handleSubmit()}>
 						{create.isPending ? <Spinner className="size-3.5" /> : <Plus />}
-						{create.isPending ? t('common.creating') : t('discussion.create.submit')}
+						{create.isPending
+							? t('common.creating')
+							: editing
+								? t('discussion.edit.rerun.submit')
+								: t('discussion.create.submit')}
 					</Button>
 				</DialogFooter>
 			</DialogContent>
