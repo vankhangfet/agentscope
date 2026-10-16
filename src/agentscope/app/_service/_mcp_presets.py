@@ -87,7 +87,14 @@ PRESETS: list[IntegrationPreset] = [
             ),
         ],
         command="uvx",
-        args=["mcp-server-redmine"],
+        # The published stdio server is ``mcp-redmine`` (runekaagaard),
+        # not ``mcp-server-redmine`` — the latter name is not on PyPI, so
+        # ``uvx`` failed to resolve it and the server never started. This
+        # one speaks stdio by default (matching the stateful stdio client
+        # below), reads ``REDMINE_URL`` / ``REDMINE_API_KEY`` exactly as
+        # these fields export them, and supports subpath URLs such as
+        # ``http://host/redmine``.
+        args=["--from", "mcp-redmine", "mcp-redmine"],
     ),
 ]
 
