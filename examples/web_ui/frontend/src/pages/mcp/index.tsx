@@ -2,6 +2,7 @@ import {
 	Blocks,
 	Check,
 	Download,
+	FlaskConical,
 	Pencil,
 	Plug,
 	SlidersHorizontal,
@@ -16,6 +17,7 @@ import { hubApi } from '@/api';
 import type { HubInfo, IntegrationPreset, MCPCard, MCPView } from '@/api';
 import { AddIntegrationDialog } from '@/components/dialog/AddIntegrationDialog.tsx';
 import { InstallMCPDialog } from '@/components/dialog/InstallMCPDialog.tsx';
+import { TestMCPDialog } from '@/components/dialog/TestMCPDialog.tsx';
 import { ResourceDetailDrawer } from '@/components/drawer/ResourceDetailDrawer.tsx';
 import { LoadMore } from '@/components/hub/LoadMore.tsx';
 import { ResourcePanel } from '@/components/hub/ResourcePanel.tsx';
@@ -353,6 +355,8 @@ interface MinePanelProps {
 function MinePanel({ mcps, loading, presets, onEdit, onRemove, onAdded }: MinePanelProps) {
 	const { t } = useTranslation();
 	const [query, setQuery] = useState('');
+	// The installed MCP whose connection-test dialog is open, or null.
+	const [testing, setTesting] = useState<MCPView | null>(null);
 
 	// Filtered client-side: the library is the user's own and small, so a
 	// round trip per keystroke would buy nothing.
@@ -469,6 +473,15 @@ function MinePanel({ mcps, loading, presets, onEdit, onRemove, onAdded }: MinePa
 										{mcp.version}
 									</span>
 								)}
+								<Button
+									size="icon-sm"
+									variant="ghost"
+									className="text-muted-foreground"
+									onClick={() => setTesting(mcp)}
+									title={t('mcp.test.action')}
+								>
+									<FlaskConical />
+								</Button>
 								{mcp.hub_id && mcp.card_id && (
 									// A preset record's edit form comes from the
 									// catalog entry, not a hub card — a different
@@ -502,6 +515,13 @@ function MinePanel({ mcps, loading, presets, onEdit, onRemove, onAdded }: MinePa
 					))}
 				</ItemGroup>
 			)}
+
+			<TestMCPDialog
+				mcp={testing}
+				onOpenChange={(open) => {
+					if (!open) setTesting(null);
+				}}
+			/>
 		</ResourcePanel>
 	);
 }

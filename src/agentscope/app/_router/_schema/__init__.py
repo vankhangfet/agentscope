@@ -26,6 +26,7 @@ from ._hub_mcp import (
     PresetFieldView,
     PresetView,
     UpdateMCPRequest,
+    TestMcpResult,
 )
 from ._hub_skill import SkillView
 from ._workspace import (
@@ -149,6 +150,7 @@ __all__ = [
     "PresetFieldView",
     "PresetView",
     "UpdateMCPRequest",
+    "TestMcpResult",
     "SkillView",
     # Workspace
     "AddFromLibraryRequest",
