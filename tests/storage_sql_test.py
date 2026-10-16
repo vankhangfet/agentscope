@@ -33,7 +33,12 @@ from agentscope.app.storage import (
     ChannelBinding,
     ChannelRecord,
     ChatModelConfig,
+    DebaterConfig,
+    DiscussionData,
+    DiscussionRecord,
+    DiscussionStatus,
     EmbeddingModelConfig,
+    JudgeConfig,
     KnowledgeBaseData,
     KnowledgeBaseRecord,
     KnowledgeDocumentData,
@@ -175,6 +180,37 @@ def _schedule_record(user_id: str, agent_id: str) -> ScheduleRecord:
                 model="gpt-4o",
                 parameters={},
             ),
+        ),
+    )
+
+
+def _discussion_record(user_id: str) -> DiscussionRecord:
+    """Build a one-debater discussion record."""
+    return DiscussionRecord(
+        user_id=user_id,
+        data=DiscussionData(
+            topic="cats vs dogs",
+            debaters=[
+                DebaterConfig(
+                    name="pro",
+                    system_prompt="You argue for cats.",
+                    chat_model_config=ChatModelConfig(
+                        type="openai",
+                        credential_id="cred-1",
+                        model="gpt-4o",
+                        parameters={},
+                    ),
+                ),
+            ],
+            judge=JudgeConfig(
+                chat_model_config=ChatModelConfig(
+                    type="openai",
+                    credential_id="cred-1",
+                    model="gpt-4o",
+                    parameters={},
+                ),
+            ),
+            status=DiscussionStatus.RUNNING,
         ),
     )
 
@@ -1852,6 +1888,39 @@ class AsyncSQLAlchemyStorageAutoMigrateTest(IsolatedAsyncioTestCase):
                 self.assertEqual(fetched.data.graph.nodes[0].id, "a")
                 self.assertEqual(
                     len(await storage.list_active_workflow_runs()),
+                    1,
+                )
+
+    async def test_migrations_alone_create_the_discussions_table(
+        self,
+    ) -> None:
+        """Same isolation for 0007 — without ``metadata.create_all`` a
+        missing migration surfaces here instead of in production."""
+        import os
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            url = f"sqlite+aiosqlite:///{os.path.join(tmp, 'as.db')}"
+
+            async with AsyncSQLAlchemyStorage(
+                url,
+                auto_migrate=True,
+                create_tables=False,
+            ) as storage:
+                saved = await storage.upsert_discussion(
+                    "user-1",
+                    _discussion_record("user-1"),
+                )
+                fetched = await storage.get_discussion("user-1", saved.id)
+                self.assertIsNotNone(fetched)
+                self.assertEqual(fetched.data.debaters[0].name, "pro")
+                self.assertEqual(
+                    len(
+                        await storage.list_discussions(
+                            "user-1",
+                            status=DiscussionStatus.RUNNING,
+                        ),
+                    ),
                     1,
                 )
 

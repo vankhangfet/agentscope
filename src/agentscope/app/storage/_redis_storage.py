@@ -15,6 +15,8 @@ from ._model import (
     AgentRecord,
     ChannelRecord,
     CredentialRecord,
+    DiscussionRecord,
+    DiscussionStatus,
     KnowledgeBaseRecord,
     KnowledgeDocumentRecord,
     KnowledgeDocumentStatus,
@@ -152,6 +154,11 @@ class RedisStorage(StorageBase):
         # Global set of ``user_id:run_id`` entries for every
         # non-terminal run; read by the startup recovery sweep.
         workflow_run_active_index: str = "agentscope:workflow_runs:active"
+
+        discussion: str = (
+            "agentscope:user:{user_id}:discussion:{discussion_id}"
+        )
+        discussion_index: str = "agentscope:user:{user_id}:discussions"
 
         team: str = "agentscope:user:{user_id}:team:{team_id}"
         team_index: str = "agentscope:user:{user_id}:teams"
@@ -2133,6 +2140,123 @@ class RedisStorage(StorageBase):
         if stale:
             await self._client.srem(active_key, *stale)
         return records
+
+    # ------------------------------------------------------------------
+    # Discussion persistence
+    # ------------------------------------------------------------------
+
+    async def upsert_discussion(
+        self,
+        user_id: str,
+        record: DiscussionRecord,
+    ) -> DiscussionRecord:
+        """Persist a discussion and index it under the user.
+
+        No global active index (unlike workflow runs): discussions
+        are bounded and short, so the per-user index is all listing
+        needs.
+        """
+        record.updated_at = datetime.now()
+        key = self._key(
+            self.key_config.discussion,
+            user_id=user_id,
+            discussion_id=record.id,
+        )
+        # This write runs on every engine transition, so the record
+        # SET (plus its optional sliding EXPIRE) and the index update
+        # go out as one non-transactional pipeline instead of
+        # sequential round trips.
+        async with self._client.pipeline(transaction=False) as pipe:
+            pipe.set(key, record.model_dump_json())
+            if self.key_ttl is not None:
+                pipe.expire(key, self.key_ttl)
+            pipe.sadd(
+                self._key(
+                    self.key_config.discussion_index,
+                    user_id=user_id,
+                ),
+                record.id,
+            )
+            await pipe.execute()
+        return record
+
+    async def get_discussion(
+        self,
+        user_id: str,
+        discussion_id: str,
+    ) -> DiscussionRecord | None:
+        """Fetch one discussion by id."""
+        raw = await self._client.get(
+            self._key(
+                self.key_config.discussion,
+                user_id=user_id,
+                discussion_id=discussion_id,
+            ),
+        )
+        return (
+            DiscussionRecord.model_validate_json(raw) if raw else None
+        )
+
+    async def list_discussions(
+        self,
+        user_id: str,
+        status: DiscussionStatus | None = None,
+    ) -> list[DiscussionRecord]:
+        """Return the user's discussions, newest first; ``status``
+        keeps only discussions in that state (Redis has no status
+        index, so the filter runs after the fetch)."""
+        keys = [
+            self._key(
+                self.key_config.discussion,
+                user_id=user_id,
+                discussion_id=discussion_id,
+            )
+            for discussion_id in await self._client.smembers(
+                self._key(
+                    self.key_config.discussion_index,
+                    user_id=user_id,
+                ),
+            )
+        ]
+        # One MGET for the whole index instead of a GET per
+        # discussion (an empty batch is skipped: MGET with no keys is
+        # a protocol error).
+        values = await self._client.mget(keys) if keys else []
+        records = []
+        for raw in values:
+            if raw is None:
+                # Key expired or was deleted out from under the index.
+                continue
+            record = DiscussionRecord.model_validate_json(raw)
+            if status is None or record.data.status == status:
+                records.append(record)
+        return sorted(
+            records,
+            key=lambda record: record.created_at,
+            reverse=True,
+        )
+
+    async def delete_discussion(
+        self,
+        user_id: str,
+        discussion_id: str,
+    ) -> bool:
+        """Delete one discussion and its index entry."""
+        await self._client.srem(
+            self._key(
+                self.key_config.discussion_index,
+                user_id=user_id,
+            ),
+            discussion_id,
+        )
+        deleted = await self._client.delete(
+            self._key(
+                self.key_config.discussion,
+                user_id=user_id,
+                discussion_id=discussion_id,
+            ),
+        )
+        return bool(deleted)
 
     # ------------------------------------------------------------------
     # Team persistence

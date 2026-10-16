@@ -103,6 +103,19 @@ class WorkflowOrigin(BaseModel):
     """Which node's conversation this is."""
 
 
+class DiscussionOrigin(BaseModel):
+    """A session a discussion opened for one of its participants."""
+
+    type: Literal["discussion"] = "discussion"
+
+    discussion_id: str
+    """The discussion that opened it."""
+
+    debater: str
+    """Which participant's conversation this is — the debater's
+    name, or ``"judge"`` for the evaluator's own session."""
+
+
 # How a session came to exist. Fixed when the session is created and
 # never rewritten, which is what separates it from
 # ``SessionRecord.team_id``: team membership is granted by a tool call
@@ -116,6 +129,7 @@ SessionOrigin = Annotated[
         TeamOrigin,
         SOPOrigin,
         WorkflowOrigin,
+        DiscussionOrigin,
     ],
     Field(discriminator="type"),
 ]

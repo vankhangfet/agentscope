@@ -10,6 +10,8 @@ from ._model import (
     AgentRecord,
     ChannelRecord,
     CredentialRecord,
+    DiscussionRecord,
+    DiscussionStatus,
     KnowledgeBaseRecord,
     KnowledgeDocumentRecord,
     KnowledgeDocumentStatus,
@@ -1064,6 +1066,43 @@ class StorageBase(ABC):
     @abstractmethod
     async def list_active_workflow_runs(self) -> list[WorkflowRunRecord]:
         """Every non-terminal run across all users (recovery sweep)."""
+
+    # ------------------------------------------------------------------
+    # Discussions
+    # ------------------------------------------------------------------
+
+    @abstractmethod
+    async def upsert_discussion(
+        self,
+        user_id: str,
+        record: DiscussionRecord,
+    ) -> DiscussionRecord:
+        """Persist a discussion (create or overwrite)."""
+
+    @abstractmethod
+    async def get_discussion(
+        self,
+        user_id: str,
+        discussion_id: str,
+    ) -> DiscussionRecord | None:
+        """Fetch one discussion by id, or None when absent."""
+
+    @abstractmethod
+    async def list_discussions(
+        self,
+        user_id: str,
+        status: DiscussionStatus | None = None,
+    ) -> list[DiscussionRecord]:
+        """The user's discussions, newest first; optionally one status
+        (``None`` means unfiltered)."""
+
+    @abstractmethod
+    async def delete_discussion(
+        self,
+        user_id: str,
+        discussion_id: str,
+    ) -> bool:
+        """Delete a discussion; True when it existed."""
 
     # ------------------------------------------------------------------
     # Team persistence

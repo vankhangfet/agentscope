@@ -26,6 +26,8 @@ from .._model import (
     AgentRecord,
     ChannelRecord,
     CredentialRecord,
+    DiscussionRecord,
+    DiscussionStatus,
     KnowledgeBaseRecord,
     KnowledgeDocumentRecord,
     KnowledgeDocumentStatus,
@@ -49,6 +51,7 @@ from ._tables import (
     AgentRow,
     ChannelRow,
     CredentialRow,
+    DiscussionRow,
     KnowledgeBaseRow,
     KnowledgeDocumentRow,
     MCPRow,
@@ -2399,3 +2402,66 @@ class AsyncSQLAlchemyStorage(StorageBase):
                     exc,
                 )
         return records
+
+    # ------------------------------------------------------------------
+    # Discussions
+    # ------------------------------------------------------------------
+
+    async def upsert_discussion(
+        self,
+        user_id: str,
+        record: DiscussionRecord,
+    ) -> DiscussionRecord:
+        """Persist a discussion (create or overwrite)."""
+        _ = user_id  # scoping is enforced by the caller
+        return await self._write_row(DiscussionRow, record)
+
+    async def get_discussion(
+        self,
+        user_id: str,
+        discussion_id: str,
+    ) -> DiscussionRecord | None:
+        """Fetch one discussion; owner-scoped."""
+        async with self._session() as sess:
+            row = await sess.get(DiscussionRow, discussion_id)
+        if row is None or row.user_id != user_id:
+            return None
+        return _to_record(row, DiscussionRecord)
+
+    async def list_discussions(
+        self,
+        user_id: str,
+        status: DiscussionStatus | None = None,
+    ) -> list[DiscussionRecord]:
+        """Return the user's discussions, newest first, filtered in
+        the database."""
+        from sqlalchemy import select
+
+        stmt = select(DiscussionRow).where(
+            DiscussionRow.user_id == user_id,
+        )
+        if status is not None:
+            stmt = stmt.where(DiscussionRow.status == status.value)
+        stmt = stmt.order_by(DiscussionRow.created_at.desc())
+
+        async with self._session() as sess:
+            rows = (await sess.execute(stmt)).scalars().all()
+        return [_to_record(r, DiscussionRecord) for r in rows]
+
+    async def delete_discussion(
+        self,
+        user_id: str,
+        discussion_id: str,
+    ) -> bool:
+        """Delete one discussion; owner-scoped."""
+        from sqlalchemy import delete
+
+        async with self._session() as sess:
+            result = await sess.execute(
+                delete(DiscussionRow).where(
+                    DiscussionRow.id == discussion_id,
+                    DiscussionRow.user_id == user_id,
+                ),
+            )
+            await sess.commit()
+        return result.rowcount > 0

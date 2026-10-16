@@ -33,6 +33,7 @@ from ._model import (
     ScheduleSource,
     ChannelOrigin,
     TeamOrigin,
+    DiscussionOrigin,
     AgentVerifier,
     HumanVerifier,
     SOPAgentRef,
@@ -70,6 +71,13 @@ from ._model import (
     RunStatus,
     WorkflowRunData,
     WorkflowRunRecord,
+    DebaterConfig,
+    DiscussionData,
+    DiscussionRecord,
+    DiscussionStatus,
+    JudgeConfig,
+    RoundArgument,
+    RoundEvaluation,
 )
 
 # A validation helper rather than a model, so it comes straight from its
@@ -135,6 +143,7 @@ __all__ = [
     "ScheduleOrigin",
     "ChannelOrigin",
     "TeamOrigin",
+    "DiscussionOrigin",
     "AgentVerifier",
     "HumanVerifier",
     "SOPAgentRef",
@@ -175,5 +184,13 @@ __all__ = [
     "RunStatus",
     "WorkflowRunData",
     "WorkflowRunRecord",
+    # The discussion models
+    "DebaterConfig",
+    "JudgeConfig",
+    "RoundArgument",
+    "RoundEvaluation",
+    "DiscussionData",
+    "DiscussionStatus",
+    "DiscussionRecord",
     "validate_workflow_graph",
 ]

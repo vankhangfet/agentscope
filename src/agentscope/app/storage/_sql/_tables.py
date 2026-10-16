@@ -287,6 +287,36 @@ class WorkflowRunRow(_JsonRecordMixin):
     }
 
 
+class DiscussionRow(_JsonRecordMixin):
+    """One row per :class:`~agentscope.app.storage.DiscussionRecord`.
+
+    ``status`` lives inside ``data`` on the record, so it is fed
+    through an ``_index_paths`` copy (mirroring
+    :class:`WorkflowRunRow`) rather than ``_indexed_fields`` — that
+    mechanism only reaches top-level record fields. The column lets
+    status-filtered listing skip rows it cannot match.
+    """
+
+    __tablename__ = "discussions"
+
+    user_id: Mapped[str] = mapped_column(
+        String(_ID_LEN),
+        nullable=False,
+        index=True,
+    )
+    status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        index=True,
+    )
+
+    _indexed_fields = ("user_id",)
+
+    # A copy from inside ``data``: where the discussion stands, for
+    # status-filtered listing.
+    _index_paths: ClassVar[dict[str, str]] = {"status": "data.status"}
+
+
 class ScheduleRow(_JsonRecordMixin):
     """One row per :class:`~agentscope.app.storage.ScheduleRecord`."""
 

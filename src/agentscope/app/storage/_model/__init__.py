@@ -10,6 +10,15 @@ from ._channel import (
     SessionSettings,
 )
 from ._credential import CredentialRecord
+from ._discussion import (
+    DebaterConfig,
+    DiscussionData,
+    DiscussionRecord,
+    DiscussionStatus,
+    JudgeConfig,
+    RoundArgument,
+    RoundEvaluation,
+)
 from ._knowledge_base import (
     ChunkerConfig,
     KnowledgeBaseData,
@@ -39,6 +48,7 @@ from ._session import (
     TeamOrigin,
     SOPOrigin,
     WorkflowOrigin,
+    DiscussionOrigin,
 )
 from ._skill import SkillRecord
 from ._sop import (
@@ -103,6 +113,7 @@ __all__ = [
     "ScheduleSource",
     "ChannelOrigin",
     "TeamOrigin",
+    "DiscussionOrigin",
     "SkillRecord",
     "AgentVerifier",
     "HumanVerifier",
@@ -142,4 +153,12 @@ __all__ = [
     "RunStatus",
     "WorkflowRunData",
     "WorkflowRunRecord",
+    # The discussion models
+    "DebaterConfig",
+    "JudgeConfig",
+    "RoundArgument",
+    "RoundEvaluation",
+    "DiscussionData",
+    "DiscussionStatus",
+    "DiscussionRecord",
 ]
