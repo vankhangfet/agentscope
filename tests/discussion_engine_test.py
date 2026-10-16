@@ -20,6 +20,10 @@ import fakeredis.aioredis
 from fastapi import HTTPException
 
 from agentscope.app._service.discussion import DebateEngine
+from agentscope.app._service.discussion._turns import (
+    JUDGE_KEY,
+    ParticipantSessions,
+)
 from agentscope.app.discussion import (
     configure_discussion,
     discussion,
@@ -35,6 +39,7 @@ from agentscope.app.storage import (
     RedisStorage,
 )
 from agentscope.message import AssistantMsg, Msg
+from agentscope.permission import PermissionMode
 
 USER = "user-1"
 
@@ -141,6 +146,12 @@ class _FakeRunner:
         self._cancel_engine: DebateEngine | None = None
         self._cancel_id: str | None = None
         self.cancelled_task: asyncio.Task | None = None
+        # Set to snapshot the persisted discussion record on one chosen
+        # turn (1-based) — how the live-tracking tests read storage
+        # mid-run, while the engine holds its in-progress state.
+        self._snapshot_on: int | None = None
+        self._snapshot_id: str | None = None
+        self.snapshot: DiscussionRecord | None = None
 
     def cancel_on_call(
         self,
@@ -153,6 +164,11 @@ class _FakeRunner:
         self._cancel_engine = engine
         self._cancel_id = discussion_id
 
+    def snapshot_on_call(self, discussion_id: str, call: int) -> None:
+        """Snapshot the persisted record on turn number *call*."""
+        self._snapshot_id = discussion_id
+        self._snapshot_on = call
+
     async def __call__(
         self,
         user_id: str,
@@ -161,6 +177,17 @@ class _FakeRunner:
         msg: Msg,
     ) -> None:
         self.calls.append((user_id, session_id, agent_id, msg))
+        if (
+            self.snapshot is None
+            and self._snapshot_on is not None
+            and len(self.calls) == self._snapshot_on
+        ):
+            assert self._snapshot_id is not None
+            self.snapshot = await self._storage.get_discussion(
+                USER,
+                self._snapshot_id,
+            )
+            assert self.snapshot is not None
         if (
             self.cancelled_task is None
             and self._cancel_after is not None
@@ -375,8 +402,124 @@ class DebateEngineTest(IsolatedAsyncioTestCase):
         self.assertIn("round 1", done.data.error)
         self.assertIn("pro", done.data.error)
         self.assertIn("model exploded", done.data.error)
-        self.assertEqual(done.data.rounds, [])
+        # The round was opened before the turn, so it is durable —
+        # empty: the failure was the round's very first turn.
+        self.assertEqual(len(done.data.rounds), 1)
+        self.assertEqual(done.data.rounds[0].arguments, [])
+        self.assertIsNone(done.data.current_speaker)
         self.assertIsNone(done.data.conclusion)
+
+    async def test_failure_mid_round_persists_partial_round(self) -> None:
+        """A debater failing mid-round leaves its completed arguments
+        durable and the floor cleared — a dead debate speaks of no
+        one."""
+        _storage, runner = await self._make()
+        runner.script = [
+            "argument pro 1",
+            RuntimeError("con model exploded"),
+        ]
+
+        done = await _drive(_record(max_rounds=2), runner)
+
+        self.assertIs(done.data.status, DiscussionStatus.FAILED)
+        assert done.data.error is not None
+        self.assertIn("round 1", done.data.error)
+        self.assertIn("con", done.data.error)
+        self.assertIn("con model exploded", done.data.error)
+        # The partial round: pro's delivered argument stays, con's
+        # never-finished turn left nothing behind.
+        self.assertEqual(len(done.data.rounds), 1)
+        self.assertEqual(
+            [
+                (argument.debater, argument.text)
+                for argument in done.data.rounds[0].arguments
+            ],
+            [("pro", "argument pro 1")],
+        )
+        self.assertIsNone(done.data.current_speaker)
+        self.assertIsNone(done.data.conclusion)
+
+    async def test_round_persists_incrementally(self) -> None:
+        """Storage shows the round while it is argued, not only once it
+        is judged."""
+        storage, runner = await self._make()
+        saved = await storage.upsert_discussion(USER, _record(max_rounds=2))
+        # The second turn of the debate is con's first argument — the
+        # moment round 1 is half argued.
+        runner.snapshot_on_call(saved.id, call=2)
+        engine = DebateEngine(storage, runner)
+        await engine._run_to_completion(USER, saved.id)
+
+        mid = runner.snapshot
+        assert mid is not None
+        self.assertIs(mid.data.status, DiscussionStatus.RUNNING)
+        self.assertEqual(len(mid.data.rounds), 1)
+        in_progress = mid.data.rounds[0]
+        self.assertEqual(in_progress.round, 1)
+        self.assertEqual(
+            [
+                (argument.debater, argument.text)
+                for argument in in_progress.arguments
+            ],
+            [("pro", "argument 1")],
+        )
+        # Unjudged so far: the strength waits for the judge.
+        self.assertIsNone(in_progress.arguments[0].strength)
+        self.assertEqual(in_progress.summary, "")
+        self.assertEqual(mid.data.current_speaker, "con")
+
+        done = await storage.get_discussion(USER, saved.id)
+        assert done is not None
+        self.assertIs(done.data.status, DiscussionStatus.COMPLETED)
+        self.assertEqual(len(done.data.rounds), 2)
+        for evaluation in done.data.rounds:
+            self.assertEqual(len(evaluation.arguments), 2)
+        self.assertIsNone(done.data.current_speaker)
+
+    async def test_judge_phase_visible(self) -> None:
+        """While the judge verdicts, the record says so and the round's
+        arguments are all delivered."""
+        storage, runner = await self._make()
+        saved = await storage.upsert_discussion(USER, _record(max_rounds=1))
+        # pro, con, then the judge's verdict turn.
+        runner.snapshot_on_call(saved.id, call=3)
+        engine = DebateEngine(storage, runner)
+        await engine._run_to_completion(USER, saved.id)
+
+        mid = runner.snapshot
+        assert mid is not None
+        self.assertEqual(mid.data.current_speaker, "judge")
+        self.assertEqual(len(mid.data.rounds), 1)
+        self.assertEqual(
+            [argument.debater for argument in mid.data.rounds[0].arguments],
+            ["pro", "con"],
+        )
+
+        done = await storage.get_discussion(USER, saved.id)
+        assert done is not None
+        self.assertIs(done.data.status, DiscussionStatus.COMPLETED)
+        self.assertIsNone(done.data.current_speaker)
+
+    async def test_run_sessions_carry_explore_mode(self) -> None:
+        """The regression behind parked-tool-call failures: every
+        participant session must run in EXPLORE, whose permission
+        checks never end in an ask, so no turn ever parks awaiting a
+        decision."""
+        storage, runner = await self._make()
+
+        await _drive(_record(max_rounds=1), runner)
+
+        seen: set[str] = set()
+        for _user, session_id, agent_id, _msg in runner.calls:
+            session = await storage.get_session(USER, agent_id, session_id)
+            assert session is not None
+            seen.add(session_id)
+            self.assertIs(
+                session.state.permission_context.mode,
+                PermissionMode.EXPLORE,
+            )
+        # pro, con and the judge each ran on their own session.
+        self.assertEqual(len(seen), 3)
 
     async def test_cancel_mid_run(self) -> None:
         storage, runner = await self._make()
@@ -398,7 +541,11 @@ class DebateEngineTest(IsolatedAsyncioTestCase):
         done = await storage.get_discussion(USER, saved.id)
         assert done is not None
         self.assertIs(done.data.status, DiscussionStatus.CANCELLED)
-        self.assertEqual(done.data.rounds, [])
+        # The round had been opened before the cancelled turn, so it is
+        # durable and empty — cancelled mid-round-1, honestly.
+        self.assertEqual(len(done.data.rounds), 1)
+        self.assertEqual(done.data.rounds[0].arguments, [])
+        self.assertIsNone(done.data.current_speaker)
         # The turn in flight when the cancel landed was the last one.
         self.assertEqual(len(runner.calls), 1)
 
@@ -451,6 +598,64 @@ class DebateEngineTest(IsolatedAsyncioTestCase):
         done = await storage.get_discussion(USER, saved.id)
         assert done is not None
         self.assertIs(done.data.status, DiscussionStatus.RUNNING)
+
+
+class ParticipantSessionsTest(IsolatedAsyncioTestCase):
+    """The session-minting plumbing both engines stand on."""
+
+    async def test_ensure_mints_explore_state(self) -> None:
+        """Sessions are born running EXPLORE — debates are unattended,
+        and a DEFAULT-mode session parks a tool call awaiting a
+        decision, which the reply health check fails the whole
+        discussion with."""
+        storage = make_storage()
+        saved = await storage.upsert_discussion(USER, _record(max_rounds=1))
+        sessions = ParticipantSessions(storage)
+
+        session_id, agent_id = await sessions.ensure(
+            USER,
+            saved,
+            "pro",
+            "You argue for pro.",
+            _model(),
+        )
+        session = await storage.get_session(USER, agent_id, session_id)
+        assert session is not None
+        self.assertIs(
+            session.state.permission_context.mode,
+            PermissionMode.EXPLORE,
+        )
+
+        # The judge's session is minted the same way.
+        judge_session_id, judge_agent_id = await sessions.ensure(
+            USER,
+            saved,
+            JUDGE_KEY,
+            "You are the judge.",
+            _model(),
+        )
+        judge = await storage.get_session(
+            USER,
+            judge_agent_id,
+            judge_session_id,
+        )
+        assert judge is not None
+        self.assertIs(
+            judge.state.permission_context.mode,
+            PermissionMode.EXPLORE,
+        )
+
+        # One session per participant: the second ensure returns the
+        # cached pair, so a debater's rounds accumulate in one
+        # conversation.
+        again = await sessions.ensure(
+            USER,
+            saved,
+            "pro",
+            "You argue for pro.",
+            _model(),
+        )
+        self.assertEqual(again, (session_id, agent_id))
 
 
 class FacadeTest(IsolatedAsyncioTestCase):

@@ -80,15 +80,26 @@ class RoundArgument(BaseModel):
 
 
 class RoundEvaluation(BaseModel):
-    """The judge's verdict on one round."""
+    """The judge's verdict on one round.
+
+    A round is persisted empty at its start and filled in place as its
+    debaters deliver, so the shape means two things: on a non-terminal
+    discussion, a round with fewer ``arguments`` than the discussion
+    has debaters is a round still in progress — the missing arguments
+    are simply not argued yet, and the judge's fields (strengths,
+    ``consensus``, ``summary``) have not landed. On a terminal
+    discussion the same shape reads as the round as far as it got
+    before the debate stopped.
+    """
 
     model_config = ConfigDict(validate_assignment=True)
 
     round: int
     """Which round this evaluates (1-based)."""
 
-    arguments: list[RoundArgument]
-    """The round's arguments, in speaking order."""
+    arguments: list[RoundArgument] = Field(default_factory=list)
+    """The round's arguments, in speaking order — empty while the
+    round is still being argued, filling as each debater delivers."""
 
     consensus: bool = False
     """Whether the judge found the sides converging."""
@@ -101,8 +112,8 @@ class DiscussionData(BaseModel):
     """A discussion's persisted content."""
 
     # Mutated in place by the engine hot loop (status, rounds,
-    # conclusion), so assignments revalidate — mirroring the run
-    # models.
+    # current_speaker, conclusion), so assignments revalidate —
+    # mirroring the run models.
     model_config = ConfigDict(validate_assignment=True)
 
     topic: str
@@ -121,7 +132,15 @@ class DiscussionData(BaseModel):
     """The evaluator."""
 
     rounds: list[RoundEvaluation] = Field(default_factory=list)
-    """The blackboard: every finished round, in order."""
+    """The blackboard: every finished round, in order — plus, while a
+    round is being argued, that round's in-progress slot at the end
+    (see :class:`RoundEvaluation`)."""
+
+    current_speaker: str | None = None
+    """Who holds the floor right now, for live progress: a debater's
+    name while that debater's turn runs, ``"judge"`` while the judge
+    verdicts or synthesizes, and ``None`` when nothing is speaking —
+    before dispatch and on every terminal state."""
 
     conclusion: str | None = None
     """The final synthesis, once reached."""

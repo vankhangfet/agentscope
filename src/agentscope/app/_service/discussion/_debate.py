@@ -10,9 +10,12 @@ failed out as ``interrupted by restart``. Round flow, mirroring the
 design: debaters argue sequentially (each seeing the prior rounds'
 arguments through its own accumulating session plus the rendered
 latest arguments of the others), the EvaluationEngine judges the
-round, the round is persisted, and the debate stops on max_rounds,
-judge consensus, cancel or failure — then the judge synthesizes the
-conclusion.
+round, and the debate stops on max_rounds, judge consensus, cancel or
+failure — then the judge synthesizes the conclusion. Rounds persist
+INCREMENTALLY — an empty round lands before its first turn, each
+argument as it is delivered, ``current_speaker`` announcing who holds
+the floor — so a reader (the UI) sees a debate live instead of one
+whole round at a time.
 """
 import asyncio
 import logging
@@ -32,6 +35,7 @@ from ...storage import (
 from ._evaluation import EvaluationEngine
 from ._turns import (
     ChatRunner,
+    JUDGE_KEY,
     ParticipantSessions,
     read_turn_reply,
     run_turn,
@@ -171,10 +175,11 @@ class DebateEngine:
         The deterministic core the loop task wraps — tests await this
         directly instead of racing a background task. Every round is
         preceded by a fresh reload (so a cancel between rounds is seen)
-        and followed by the round's persist, before the stop decision
-        that reads it. The conclusion turn runs only on a debate that
-        actually stopped non-terminal; its failure fails the discussion
-        — unlike a round verdict, the conclusion is the deliverable.
+        and persisted incrementally inside :meth:`_run_round`, the
+        verdict landing before the stop decision reads it. The
+        conclusion turn runs only on a debate that actually stopped
+        non-terminal; its failure fails the discussion — unlike a round
+        verdict, the conclusion is the deliverable.
 
         Args:
             user_id (`str`): The discussion's owner.
@@ -200,30 +205,17 @@ class DebateEngine:
             if round_idx > record.data.max_rounds:
                 break
             try:
-                arguments = await self._run_round(
+                evaluation = await self._run_round(
                     user_id,
+                    discussion_id,
                     record,
                     round_idx,
                 )
             except RoundFailure as exc:
                 await self._fail(user_id, discussion_id, str(exc))
                 return
-            evaluation = await self._evaluation.evaluate_round(
-                user_id,
-                record,
-                round_idx,
-                arguments,
-            )
-            # Persisted before the stop decision reads it: a crash here
-            # leaves the round durable and the sweep fails the record.
-            if (
-                await self._mutate(
-                    user_id,
-                    discussion_id,
-                    _append_round(evaluation),
-                )
-                is None
-            ):
+            if evaluation is None:
+                # The discussion vanished mid-round; nothing to drive.
                 return
             if evaluation.consensus:
                 break
@@ -237,41 +229,91 @@ class DebateEngine:
     async def _run_round(
         self,
         user_id: str,
+        discussion_id: str,
         record: DiscussionRecord,
         round_idx: int,
-    ) -> list[RoundArgument]:
-        """Run one round: every debater argues once, in order.
+    ) -> RoundEvaluation | None:
+        """Run one round: every debater argues once, then the judge.
 
         Debaters are strictly sequential — each sees the round's
         earlier speakers only through their rendered arguments in the
         prompt, while everything a debater itself has said rides its
         own session history (one session per debater across rounds).
 
+        The round persists incrementally, every step through
+        :meth:`_mutate`: an empty :class:`RoundEvaluation` lands before
+        the first turn, each debater's argument lands as delivered
+        (``current_speaker`` naming who holds the floor, and the judge
+        while she verdicts), and the verdict folds onto that same
+        round in place. A crash or failure mid-round therefore leaves
+        the round durable exactly as far as it was argued.
+
         Args:
             user_id (`str`): The discussion's owner.
+            discussion_id (`str`): The discussion being argued.
             record (`DiscussionRecord`): The discussion being argued.
             round_idx (`int`): Which round, 1-based.
 
         Returns:
-            `list[RoundArgument]`: The round's arguments, in speaking
-                order, unevaluated.
+            `RoundEvaluation | None`: The judged round, or ``None``
+                when the discussion vanished mid-round.
 
         Raises:
             `RoundFailure`: A debater turn failed — the message names
                 the round and the debater.
         """
+        opened = await self._mutate(
+            user_id,
+            discussion_id,
+            _open_round(round_idx),
+        )
+        if opened is None:
+            return None
         arguments: list[RoundArgument] = []
         for debater in record.data.debaters:
+            announced = await self._mutate(
+                user_id,
+                discussion_id,
+                _set_speaker(debater.name),
+            )
+            if announced is None:
+                return None
             text = await self._debater_turn(
                 user_id,
                 record,
                 debater,
                 round_idx,
             )
-            arguments.append(
-                RoundArgument(debater=debater.name, text=text),
+            argument = RoundArgument(debater=debater.name, text=text)
+            arguments.append(argument)
+            appended = await self._mutate(
+                user_id,
+                discussion_id,
+                _append_argument(round_idx, argument),
             )
-        return arguments
+            if appended is None:
+                return None
+        judging = await self._mutate(
+            user_id,
+            discussion_id,
+            _set_speaker(JUDGE_KEY),
+        )
+        if judging is None:
+            return None
+        evaluation = await self._evaluation.evaluate_round(
+            user_id,
+            record,
+            round_idx,
+            arguments,
+        )
+        judged = await self._mutate(
+            user_id,
+            discussion_id,
+            _apply_evaluation(round_idx, evaluation),
+        )
+        if judged is None:
+            return None
+        return evaluation
 
     async def _debater_turn(
         self,
@@ -494,21 +536,91 @@ def _mark_running(record: DiscussionRecord) -> None:
     record.data.status = DiscussionStatus.RUNNING
 
 
-def _append_round(
-    evaluation: RoundEvaluation,
-) -> Callable[[DiscussionRecord], None]:
-    """Transition helper factory: persist one judged round.
+def _open_round(round_idx: int) -> Callable[[DiscussionRecord], None]:
+    """Transition helper factory: persist an empty in-progress round.
 
-    Terminal statuses are kept — a cancel that landed while the round
-    was being argued or judged is never resurrected by its own round.
+    Terminal statuses are kept — a cancel that landed before the round
+    opened is never resurrected by the round it never argued.
     """
 
-    def append(record: DiscussionRecord) -> None:
+    def open_round(record: DiscussionRecord) -> None:
         if record.data.status in _TERMINAL:
             return
-        record.data.rounds.append(evaluation)
+        record.data.rounds.append(RoundEvaluation(round=round_idx))
 
-    return append
+    return open_round
+
+
+def _set_speaker(speaker: str) -> Callable[[DiscussionRecord], None]:
+    """Transition helper factory: announce who holds the floor."""
+
+    def set_speaker(record: DiscussionRecord) -> None:
+        if record.data.status in _TERMINAL:
+            return
+        record.data.current_speaker = speaker
+
+    return set_speaker
+
+
+def _append_argument(
+    round_idx: int,
+    argument: RoundArgument,
+) -> Callable[[DiscussionRecord], None]:
+    """Transition helper factory: land one delivered argument on its
+    round."""
+
+    def append_argument(record: DiscussionRecord) -> None:
+        if record.data.status in _TERMINAL:
+            return
+        in_progress = _live_round(record, round_idx)
+        if in_progress is None:
+            return
+        in_progress.arguments.append(argument.model_copy())
+
+    return append_argument
+
+
+def _apply_evaluation(
+    round_idx: int,
+    evaluation: RoundEvaluation,
+) -> Callable[[DiscussionRecord], None]:
+    """Transition helper factory: fold a verdict onto its round.
+
+    The live round's arguments are replaced with the evaluation's
+    copies — same debaters, same texts, now carrying the judge's
+    strengths, rebutted flags and notes — and the consensus and
+    summary land with them.
+    """
+
+    def apply(record: DiscussionRecord) -> None:
+        if record.data.status in _TERMINAL:
+            return
+        in_progress = _live_round(record, round_idx)
+        if in_progress is None:
+            return
+        in_progress.arguments = [
+            argument.model_copy() for argument in evaluation.arguments
+        ]
+        in_progress.consensus = evaluation.consensus
+        in_progress.summary = evaluation.summary
+
+    return apply
+
+
+def _live_round(
+    record: DiscussionRecord,
+    round_idx: int,
+) -> RoundEvaluation | None:
+    """The round-*round_idx* slot of *record*, when it was opened.
+
+    Rounds are opened in order and never removed, so the slot is the
+    ``round_idx``-th; ``None`` means the round was never opened (a
+    terminal status got there first) and writers step aside rather
+    than touch a round that is not theirs.
+    """
+    if len(record.data.rounds) < round_idx:
+        return None
+    return record.data.rounds[round_idx - 1]
 
 
 def _complete(conclusion: str) -> Callable[[DiscussionRecord], None]:
@@ -519,6 +631,7 @@ def _complete(conclusion: str) -> Callable[[DiscussionRecord], None]:
             return
         record.data.status = DiscussionStatus.COMPLETED
         record.data.conclusion = conclusion
+        record.data.current_speaker = None
         record.data.finished_at = datetime.now()
 
     return complete
@@ -529,17 +642,24 @@ def _cancel(record: DiscussionRecord) -> None:
     if record.data.status in _TERMINAL:
         return
     record.data.status = DiscussionStatus.CANCELLED
+    record.data.current_speaker = None
     record.data.finished_at = datetime.now()
 
 
 def _fail_transition(error: str) -> Callable[[DiscussionRecord], None]:
-    """Transition helper factory: FAILED with the error."""
+    """Transition helper factory: FAILED with the error.
+
+    Every failure path lands here — a failed turn, the loop wrapper's
+    crash handler — and all of them release the floor: a dead debate
+    names no current speaker.
+    """
 
     def fail(record: DiscussionRecord) -> None:
         if record.data.status in _TERMINAL:
             return
         record.data.status = DiscussionStatus.FAILED
         record.data.error = error
+        record.data.current_speaker = None
         record.data.finished_at = datetime.now()
 
     return fail
@@ -551,6 +671,7 @@ def _interrupted(record: DiscussionRecord) -> None:
         return
     record.data.status = DiscussionStatus.FAILED
     record.data.error = _RESTART_ERROR
+    record.data.current_speaker = None
     record.data.finished_at = datetime.now()
 
 

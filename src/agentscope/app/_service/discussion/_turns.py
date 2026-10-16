@@ -13,6 +13,7 @@ its own.
 """
 from ...._utils._common import _generate_id
 from ....message import ToolCallState, UserMsg
+from ....permission import PermissionContext, PermissionMode
 from ....state import AgentState
 from ....types import ReplyFinishedReason
 from .._workflow_nodes import ChatRunner
@@ -115,7 +116,19 @@ class ParticipantSessions:
                 chat_model_config=model,
                 fallback_chat_model_config=None,
             ),
-            state=AgentState(),
+            # A debate is unattended — no one is watching to decide a
+            # tool call — so a bare DEFAULT state would park the turn
+            # on the first call needing approval, and the parked-call
+            # health check in ``read_turn_reply`` would fail the whole
+            # discussion. EXPLORE never asks: read-only tools are
+            # allowed and modifications denied, so no turn can stall.
+            # (The scheduler gives its unattended runs a mode for the
+            # same reason.)
+            state=AgentState(
+                permission_context=PermissionContext(
+                    mode=PermissionMode.EXPLORE,
+                ),
+            ),
             origin=DiscussionOrigin(
                 discussion_id=record.id,
                 debater=key,

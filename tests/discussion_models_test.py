@@ -74,6 +74,7 @@ class DiscussionModelsTest(TestCase):
         self.assertEqual(data.rounds, [])
         self.assertIsNone(data.conclusion)
         self.assertIsNone(data.error)
+        self.assertIsNone(data.current_speaker)
         self.assertEqual(data.trigger, "manual")
         self.assertIsNone(data.finished_at)
         # The judge stays neutral out of the box.
@@ -162,6 +163,16 @@ class DiscussionModelsTest(TestCase):
             restored.data.finished_at,
             datetime(2026, 10, 16, 12, 0),
         )
+
+    def test_current_speaker_round_trips(self) -> None:
+        """The live floor-holder survives JSON, debater or judge."""
+        data = _discussion_data()
+        for speaker in ("pro", "judge"):
+            data.current_speaker = speaker
+            restored = DiscussionData.model_validate_json(
+                data.model_dump_json(),
+            )
+            self.assertEqual(restored.current_speaker, speaker)
 
     def test_discussion_origin_round_trips_in_a_session(self) -> None:
         """A discussion-opened session carries its origin through JSON."""
