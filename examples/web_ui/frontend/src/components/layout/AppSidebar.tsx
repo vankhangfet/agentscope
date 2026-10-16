@@ -7,6 +7,7 @@ import {
 	KeyRound,
 	Languages,
 	LibraryBig,
+	MessagesSquare,
 	UserRound,
 	Workflow,
 } from 'lucide-react';
@@ -138,6 +139,18 @@ export function AppSidebar() {
 										</span>
 									</Link>
 								)}
+							</SidebarMenuItem>
+							<SidebarMenuItem>
+								<SidebarMenuButton
+									tooltip={{ children: t('common.discussion'), hidden: false }}
+									// Stays lit while on a discussion's live view,
+									// mirroring the workflow entry.
+									isActive={location.pathname.startsWith('/discussion')}
+									onClick={() => navigate('/discussion')}
+									className="justify-center"
+								>
+									<MessagesSquare />
+								</SidebarMenuButton>
 							</SidebarMenuItem>
 							<SidebarMenuItem>
 								<SidebarMenuButton

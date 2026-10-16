@@ -963,6 +963,132 @@ export interface ScheduleListResponse {
 	total: number;
 }
 
+// ─── Discussion ───────────────────────────────────────────────────────────────
+
+/** Where a discussion stands. Mirrors the backend's `DiscussionStatus`. */
+export type DiscussionStatus =
+	| 'PENDING'
+	| 'RUNNING'
+	| 'COMPLETED'
+	| 'FAILED'
+	| 'CANCELLED';
+
+/** One debater: everything needed to argue its side. */
+export interface DebaterConfig {
+	/** Display name; unique within the discussion. */
+	name: string;
+	/** The stance the debater argues and the expertise it brings. */
+	system_prompt: string;
+	/** The model the debater argues through. */
+	chat_model_config: ChatModelConfig;
+}
+
+/**
+ * The evaluator: scores arguments, detects consensus, and synthesizes
+ * the conclusion.
+ */
+export interface JudgeConfig {
+	/** The judge's instructions; omitted keeps the backend's neutral default. */
+	system_prompt?: string;
+	/** The model the judge evaluates through. */
+	chat_model_config: ChatModelConfig;
+}
+
+/** One debater's argument in one round, with the judge's verdict on it. */
+export interface RoundArgument {
+	/** Which debater argued this. */
+	debater: string;
+	/** The argument as delivered. */
+	text: string;
+	/** The judge's 1-5 score; null until judged. */
+	strength: number | null;
+	/** Whether a later argument beats it; null until judged. */
+	rebutted: boolean | null;
+	/** The judge's one-line assessment. */
+	note: string;
+}
+
+/** The judge's verdict on one round. */
+export interface RoundEvaluation {
+	/** Which round this evaluates (1-based). */
+	round: number;
+	/** The round's arguments, in speaking order. */
+	arguments: RoundArgument[];
+	/** Whether the judge found the sides converging. */
+	consensus: boolean;
+	/** The judge's round summary. */
+	summary: string;
+}
+
+/** A discussion's persisted content. */
+export interface DiscussionData {
+	/** The issue under debate. */
+	topic: string;
+	status: DiscussionStatus;
+	/** Round ceiling, 1-10; the debate may stop earlier on consensus. */
+	max_rounds: number;
+	/** Who argues — 1 to 6. */
+	debaters: DebaterConfig[];
+	/** The evaluator (server-filled with defaults when not given). */
+	judge: JudgeConfig;
+	/** The blackboard: every finished round, in order. */
+	rounds: RoundEvaluation[];
+	/** The final synthesis, once reached. */
+	conclusion: string | null;
+	/** Why the discussion failed, when it did. */
+	error: string | null;
+	/** manual | api | chat_tool. */
+	trigger: string;
+	/** Set once the discussion reaches a terminal state. */
+	finished_at: string | null;
+}
+
+/** A stored discussion, as `GET /discussion/` list entries return. */
+export interface Discussion extends RecordBase {
+	/** The owner's user id. */
+	user_id: string;
+	data: DiscussionData;
+}
+
+/**
+ * Response of `GET /discussion/{id}` and `POST /discussion/{id}/cancel`:
+ * the content, no record shell. The id is the one the caller addressed
+ * the request with.
+ */
+export interface DiscussionDetailResponse {
+	data: DiscussionData;
+}
+
+export interface CreateDiscussionRequest {
+	/** The issue under debate; non-empty. */
+	topic: string;
+	/** Who argues — 1 to 6, each a name unique within the discussion. */
+	debaters: DebaterConfig[];
+	/**
+	 * The evaluator; omitted keeps the default neutral prompt and runs
+	 * the judge on the first debater's model.
+	 */
+	judge?: JudgeConfig | null;
+	/** Round ceiling, 1-10 (default 3). */
+	max_rounds?: number;
+}
+
+export interface CreateDiscussionResponse {
+	discussion_id: string;
+}
+
+/** Query parameters accepted by `GET /discussion/`. */
+export interface ListDiscussionsParams {
+	/** Only discussions in this status when given. */
+	status?: DiscussionStatus;
+}
+
+export interface ListDiscussionsResponse {
+	/** The discussions, newest first. */
+	discussions: Discussion[];
+	total: number;
+}
+
 // ─── Model ────────────────────────────────────────────────────────────────────
 
 export interface ModelCard {

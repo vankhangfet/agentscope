@@ -39,6 +39,7 @@
 		"team": "Team",
 		"uploading": "Uploading",
 		"workflow": "Workflows",
+		"discussion": "Discussions",
 		"leader": "Leader",
 		"time": "Time",
 		"yes": "Yes",
@@ -809,6 +810,81 @@
 			"approvedByYou": "Approved by you",
 			"rejectedByYou": "Rejected by you",
 			"noPreview": "No output preview — the full context is available in the run view."
+		}
+	},
+	"discussion": {
+		"subtitle": "Multi-agent debates with an impartial judge, round by round",
+		"status": {
+			"PENDING": "Pending",
+			"RUNNING": "Running",
+			"COMPLETED": "Completed",
+			"FAILED": "Failed",
+			"CANCELLED": "Cancelled"
+		},
+		"list": {
+			"title": "Discussions",
+			"label": "Discussions",
+			"count_one": "{{count}} discussion",
+			"count_other": "{{count}} discussions",
+			"new": "New Discussion",
+			"loadFailed": "Couldn't load discussions",
+			"retry": "Retry",
+			"emptyTitle": "No discussions",
+			"emptyDescription": "Start a debate to see it here — debaters argue over rounds while a judge scores every argument.",
+			"debaterCount_one": "{{count}} debater",
+			"debaterCount_other": "{{count}} debaters",
+			"table": {
+				"topic": "Topic",
+				"status": "Status",
+				"debaters": "Debaters",
+				"rounds": "Rounds",
+				"updated": "Updated"
+			}
+		},
+		"create": {
+			"title": "New Discussion",
+			"description": "Configure the debaters and let them argue it out — a judge scores every round.",
+			"topic": "Topic",
+			"topicPlaceholder": "The issue under debate — e.g. Should we migrate our monolith to microservices?",
+			"debaters": "Debaters",
+			"debater": "Debater {{index}}",
+			"namePlaceholder": "Debater name",
+			"modelPlaceholder": "Debating model",
+			"stancePlaceholder": "Stance / system prompt — the position this debater argues and the expertise it brings.",
+			"removeDebater": "Remove debater {{index}}",
+			"addDebater": "Add debater",
+			"judge": "Judge (optional)",
+			"judgeHint": "Leave empty for the default impartial judge, running on the first debater's model.",
+			"judgeModelPlaceholder": "Judge model",
+			"judgePromptPlaceholder": "You are an impartial debate judge. Assess each argument strictly on its merits…",
+			"maxRounds": "Max rounds",
+			"maxRoundsHint": "1-10; the debate may stop earlier once the judge finds consensus.",
+			"submit": "Start Discussion",
+			"created": "Discussion started",
+			"errors": {
+				"duplicateNames": "Debater names must be unique within a discussion."
+			}
+		},
+		"detail": {
+			"back": "Back to discussions",
+			"loadFailed": "Couldn't load the discussion",
+			"trigger": "Trigger",
+			"finished": "Finished",
+			"roundsOf": "{{current}} / {{max}} rounds",
+			"cancel": "Cancel discussion",
+			"cancelTitle": "Cancel this discussion?",
+			"cancelDescription": "The debate stops where it is and is marked cancelled. This cannot be undone.",
+			"cancelConfirm": "Cancel discussion",
+			"cancelled": "Discussion cancelled",
+			"conclusion": "Conclusion",
+			"round": "Round {{round}}",
+			"consensus": "Consensus",
+			"noConsensus": "No consensus",
+			"rebutted": "Rebutted",
+			"strength": "Strength {{score}} of 5",
+			"noRoundsTitle": "No rounds yet",
+			"noRoundsLive": "The debate is starting — arguments appear here as rounds complete.",
+			"noRoundsDone": "This discussion ended before any round completed."
 		}
 	},
 	"model-parameters": {

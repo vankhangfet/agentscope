@@ -1,0 +1,283 @@
+import { format } from 'date-fns';
+import { ArrowLeft, Ban, MessagesSquare, ScrollText, Star } from 'lucide-react';
+import * as React from 'react';
+import { Link, useParams } from 'react-router-dom';
+import { toast } from 'sonner';
+
+import { DiscussionStatusBadge } from './components/DiscussionStatusBadge';
+import { DISCUSSION_TERMINAL_STATUSES } from '@/api';
+import type { RoundArgument, RoundEvaluation } from '@/api';
+import { DeleteDialog } from '@/components/dialog/DeleteDialog';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import {
+	Empty,
+	EmptyDescription,
+	EmptyHeader,
+	EmptyMedia,
+	EmptyTitle,
+} from '@/components/ui/empty';
+import { Spinner } from '@/components/ui/spinner';
+import { useCancelDiscussion, useDiscussion } from '@/hooks/useDiscussions';
+import { useTranslation } from '@/i18n/useI18n';
+import { cn } from '@/lib/utils';
+
+/** The judge's 1-5 strength score as five stars, filled up to the score. */
+function StrengthStars({ strength }: { strength: number | null }) {
+	const { t } = useTranslation();
+	if (strength == null) return null;
+	return (
+		<span
+			className="flex items-center gap-0.5"
+			role="img"
+			aria-label={t('discussion.detail.strength', { score: strength })}
+		>
+			{Array.from({ length: 5 }).map((_, i) => (
+				<Star
+					key={i}
+					className={cn(
+						'size-3.5',
+						i < strength
+							? 'fill-amber-400 text-amber-400'
+							: 'text-muted-foreground/40',
+					)}
+				/>
+			))}
+		</span>
+	);
+}
+
+/** One debater's argument card, with the judge's verdict on it. */
+function ArgumentCard({ argument }: { argument: RoundArgument }) {
+	const { t } = useTranslation();
+	return (
+		<div className="flex flex-col gap-2 rounded-lg border border-border bg-background/50 p-3">
+			<div className="flex items-center justify-between gap-2">
+				<span className="min-w-0 truncate text-xs font-semibold">{argument.debater}</span>
+				<StrengthStars strength={argument.strength} />
+			</div>
+			{/* A rebutted argument stays readable under the strike — the
+			 * judge's point is that a later one beat it, not that it
+			 * vanished. */}
+			<p
+				className={cn(
+					'text-[13px] leading-relaxed break-words whitespace-pre-wrap',
+					argument.rebutted === true &&
+						'text-muted-foreground line-through decoration-muted-foreground/50',
+				)}
+			>
+				{argument.text}
+			</p>
+			{(argument.rebutted === true || argument.note !== '') && (
+				<div className="mt-auto flex flex-wrap items-center gap-2 pt-1 text-xs">
+					{argument.rebutted === true && (
+						<Badge variant="outline" className="text-muted-foreground">
+							{t('discussion.detail.rebutted')}
+						</Badge>
+					)}
+					{argument.note !== '' && (
+						<span className="text-muted-foreground">{argument.note}</span>
+					)}
+				</div>
+			)}
+		</div>
+	);
+}
+
+/** One round on the timeline: the argument cards, then the verdict. */
+function RoundSection({ round }: { round: RoundEvaluation }) {
+	const { t } = useTranslation();
+	return (
+		<section className="space-y-2 border-l-2 border-border pl-4">
+			<div className="flex flex-wrap items-center gap-2">
+				<span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+					{t('discussion.detail.round', { round: round.round })}
+				</span>
+				{round.consensus ? (
+					<Badge className="bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300">
+						{t('discussion.detail.consensus')}
+					</Badge>
+				) : (
+					<Badge variant="outline" className="text-muted-foreground">
+						{t('discussion.detail.noConsensus')}
+					</Badge>
+				)}
+			</div>
+			<div className="grid gap-3 md:grid-cols-2">
+				{round.arguments.map((argument, i) => (
+					<ArgumentCard key={`${argument.debater}-${i}`} argument={argument} />
+				))}
+			</div>
+			{round.summary !== '' && (
+				<p className="rounded-lg bg-muted/50 p-3 text-xs leading-relaxed break-words text-muted-foreground">
+					{round.summary}
+				</p>
+			)}
+		</section>
+	);
+}
+
+/**
+ * The live debate view: header (status, cancel) over the rounds
+ * timeline and the conclusion panel once the judge synthesizes it.
+ *
+ * Liveness: plain polling — 5s while the discussion is PENDING or
+ * RUNNING, stopping once a fetch reports a terminal status (the SSE
+ * stream of the run view follows later, per the design's non-goals).
+ */
+export function DiscussionDetailPage() {
+	const { t } = useTranslation();
+	const { discussionId = '' } = useParams<{ discussionId: string }>();
+	const [confirmCancel, setConfirmCancel] = React.useState(false);
+	const cancel = useCancelDiscussion();
+
+	// Poll only while the debate is live: the effect flips the flag on
+	// every fetch, and the final fetch that sees a terminal status is
+	// itself the last poll.
+	const [poll, setPoll] = React.useState(true);
+	const { discussion, error } = useDiscussion(discussionId || null, {
+		refetchInterval: poll ? 5000 : false,
+	});
+	React.useEffect(() => {
+		setPoll(
+			discussion == null || !DISCUSSION_TERMINAL_STATUSES.includes(discussion.status),
+		);
+	}, [discussion]);
+
+	// ─── Loading / error shell ───────────────────────────────────────────
+
+	if (!discussion) {
+		return (
+			<div className="flex size-full p-2">
+				<main className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-[22px] bg-card shadow-panel">
+					<header className="flex items-center gap-2 border-b px-4 py-3">
+						<Button variant="ghost" size="icon-sm" asChild>
+							<Link to="/discussion" aria-label={t('discussion.detail.back')}>
+								<ArrowLeft />
+							</Link>
+						</Button>
+						<span className="font-mono text-sm text-muted-foreground">{discussionId}</span>
+					</header>
+					<div className="flex min-h-0 flex-1 items-center justify-center">
+						{error ? (
+							<Empty className="border-none py-10">
+								<EmptyHeader>
+									<EmptyMedia variant="icon">
+										<MessagesSquare />
+									</EmptyMedia>
+									<EmptyTitle>{t('discussion.detail.loadFailed')}</EmptyTitle>
+									<EmptyDescription>{error.message}</EmptyDescription>
+								</EmptyHeader>
+							</Empty>
+						) : (
+							<Spinner className="size-6" />
+						)}
+					</div>
+				</main>
+			</div>
+		);
+	}
+
+	// ─── Live view ───────────────────────────────────────────────────────
+
+	const live = !DISCUSSION_TERMINAL_STATUSES.includes(discussion.status);
+
+	return (
+		<div className="flex size-full p-2">
+			<main className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-[22px] bg-card shadow-panel">
+				<header className="border-b px-4 py-3">
+					<div className="flex items-center gap-2">
+						<Button variant="ghost" size="icon-sm" asChild>
+							<Link to="/discussion" aria-label={t('discussion.detail.back')}>
+								<ArrowLeft />
+							</Link>
+						</Button>
+						<div className="min-w-0 flex-1 truncate text-sm font-semibold">
+							{discussion.topic}
+						</div>
+						<Badge variant="secondary">
+							{t('discussion.detail.roundsOf', {
+								current: discussion.rounds.length,
+								max: discussion.max_rounds,
+							})}
+						</Badge>
+						<DiscussionStatusBadge status={discussion.status} />
+						{(discussion.status === 'PENDING' || discussion.status === 'RUNNING') && (
+							<Button variant="outline" size="sm" onClick={() => setConfirmCancel(true)}>
+								<Ban />
+								{t('discussion.detail.cancel')}
+							</Button>
+						)}
+					</div>
+					<div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+						<span className="font-mono">{discussionId}</span>
+						<span>
+							{t('discussion.detail.trigger')}: {discussion.trigger}
+						</span>
+						<span>
+							{t('discussion.detail.finished')}:{' '}
+							{discussion.finished_at
+								? format(new Date(discussion.finished_at), 'yyyy-MM-dd HH:mm:ss')
+								: '—'}
+						</span>
+					</div>
+					{discussion.status === 'FAILED' && discussion.error && (
+						<p className="mt-2 rounded bg-destructive/10 p-2 font-mono text-[11px] leading-relaxed break-words text-destructive">
+							{discussion.error}
+						</p>
+					)}
+				</header>
+
+				<div className="flex-1 space-y-5 overflow-y-auto px-4 py-4">
+					{discussion.conclusion != null && (
+						<section className="rounded-lg border border-green-600/30 bg-green-500/5 p-4">
+							<div className="flex items-center gap-2 text-sm font-semibold text-green-700 dark:text-green-400">
+								<ScrollText className="size-4" />
+								{t('discussion.detail.conclusion')}
+							</div>
+							<p className="mt-2 text-sm leading-relaxed break-words whitespace-pre-wrap">
+								{discussion.conclusion}
+							</p>
+						</section>
+					)}
+
+					{discussion.rounds.length === 0 ? (
+						<Empty className="border-none py-10">
+							<EmptyHeader>
+								<EmptyMedia variant="icon">
+									<MessagesSquare />
+								</EmptyMedia>
+								<EmptyTitle>{t('discussion.detail.noRoundsTitle')}</EmptyTitle>
+								<EmptyDescription>
+									{live
+										? t('discussion.detail.noRoundsLive')
+										: t('discussion.detail.noRoundsDone')}
+								</EmptyDescription>
+							</EmptyHeader>
+						</Empty>
+					) : (
+						discussion.rounds.map((round) => (
+							<RoundSection key={round.round} round={round} />
+						))
+					)}
+				</div>
+			</main>
+
+			<DeleteDialog
+				open={confirmCancel}
+				onOpenChange={setConfirmCancel}
+				title={t('discussion.detail.cancelTitle')}
+				description={t('discussion.detail.cancelDescription')}
+				confirmLabel={t('discussion.detail.cancelConfirm')}
+				onConfirm={async () => {
+					try {
+						await cancel.mutateAsync(discussionId);
+						toast.success(t('discussion.detail.cancelled'));
+					} catch {
+						// The API client already toasted the failure detail.
+					}
+				}}
+			/>
+		</div>
+	);
+}

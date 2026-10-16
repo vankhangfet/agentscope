@@ -59,6 +59,13 @@ export type {
 	TestCredentialRequest,
 	TestCredentialResult,
 } from './workflow';
+export {
+	DISCUSSION_TERMINAL_STATUSES,
+	createDiscussion,
+	listDiscussions,
+	getDiscussion,
+	cancelDiscussion,
+} from './discussion';
 export { embeddingModelApi, modelApi, realtimeModelApi, ttsModelApi } from './model';
 export { realtimeApi } from './realtime';
 export { knowledgeBaseApi } from './knowledgeBase';

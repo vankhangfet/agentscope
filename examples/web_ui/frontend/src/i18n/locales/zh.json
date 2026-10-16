@@ -39,6 +39,7 @@
 		"team": "团队",
 		"uploading": "上传中",
 		"workflow": "工作流",
+		"discussion": "讨论",
 		"leader": "队长",
 		"time": "时间",
 		"yes": "是",
@@ -809,6 +810,81 @@
 			"approvedByYou": "您已批准",
 			"rejectedByYou": "您已驳回",
 			"noPreview": "暂无输出预览——完整上下文可在运行详情中查看。"
+		}
+	},
+	"discussion": {
+		"subtitle": "多智能体辩论，配中立裁判逐轮评判",
+		"status": {
+			"PENDING": "等待中",
+			"RUNNING": "运行中",
+			"COMPLETED": "已完成",
+			"FAILED": "已失败",
+			"CANCELLED": "已取消"
+		},
+		"list": {
+			"title": "讨论",
+			"label": "讨论",
+			"count_one": "{{count}} 个讨论",
+			"count_other": "{{count}} 个讨论",
+			"new": "新建讨论",
+			"loadFailed": "无法加载讨论",
+			"retry": "重试",
+			"emptyTitle": "暂无讨论",
+			"emptyDescription": "发起一场辩论即可在这里看到——辩手逐轮交锋，裁判为每个论点打分。",
+			"debaterCount_one": "{{count}} 位辩手",
+			"debaterCount_other": "{{count}} 位辩手",
+			"table": {
+				"topic": "主题",
+				"status": "状态",
+				"debaters": "辩手",
+				"rounds": "轮次",
+				"updated": "更新时间"
+			}
+		},
+		"create": {
+			"title": "新建讨论",
+			"description": "配置辩手，让他们展开辩论——裁判为每一轮打分。",
+			"topic": "主题",
+			"topicPlaceholder": "辩论的议题——例如：是否应该把单体架构迁移到微服务？",
+			"debaters": "辩手",
+			"debater": "辩手 {{index}}",
+			"namePlaceholder": "辩手名称",
+			"modelPlaceholder": "辩论模型",
+			"stancePlaceholder": "立场 / 系统提示词——该辩手主张的观点及其专长。",
+			"removeDebater": "移除辩手 {{index}}",
+			"addDebater": "添加辩手",
+			"judge": "裁判（可选）",
+			"judgeHint": "留空则使用默认的中立裁判，并运行在第一位辩手的模型上。",
+			"judgeModelPlaceholder": "裁判模型",
+			"judgePromptPlaceholder": "你是一场辩论的公正裁判。仅依据论证本身评判每个论点……",
+			"maxRounds": "最大轮数",
+			"maxRoundsHint": "1-10；若裁判判定达成一致，辩论可能提前结束。",
+			"submit": "开始讨论",
+			"created": "讨论已开始",
+			"errors": {
+				"duplicateNames": "同一场讨论中辩手名称不能重复。"
+			}
+		},
+		"detail": {
+			"back": "返回讨论列表",
+			"loadFailed": "无法加载讨论",
+			"trigger": "触发方式",
+			"finished": "结束时间",
+			"roundsOf": "{{current}} / {{max}} 轮",
+			"cancel": "取消讨论",
+			"cancelTitle": "取消此讨论？",
+			"cancelDescription": "辩论将立即停止并标记为已取消。此操作无法撤销。",
+			"cancelConfirm": "取消讨论",
+			"cancelled": "讨论已取消",
+			"conclusion": "结论",
+			"round": "第 {{round}} 轮",
+			"consensus": "达成一致",
+			"noConsensus": "尚未一致",
+			"rebutted": "已被驳倒",
+			"strength": "强度 {{score}} / 5",
+			"noRoundsTitle": "暂无轮次",
+			"noRoundsLive": "辩论正在开始——轮次完成后会显示在这里。",
+			"noRoundsDone": "该讨论在任何一轮完成之前就结束了。"
 		}
 	},
 	"model-parameters": {

@@ -16,6 +16,8 @@ import { queryClient } from '@/lib/query-client';
 import { ChannelPage } from '@/pages/channel';
 import { ChatPage } from '@/pages/chat';
 import { CredentialPage } from '@/pages/credential';
+import { DiscussionPage } from '@/pages/discussion';
+import { DiscussionDetailPage } from '@/pages/discussion/detail';
 import { KnowledgePage } from '@/pages/knowledge';
 import { SchedulePage } from '@/pages/schedule';
 import { SetupPage } from '@/pages/setup';
@@ -72,6 +74,11 @@ const router = createBrowserRouter([
 					{ path: '/workflow/runs', element: <WorkflowRunsPage /> },
 					{ path: '/workflow/runs/:runId', element: <WorkflowRunDetailPage /> },
 					{ path: '/workflow/approvals', element: <WorkflowApprovalsPage /> },
+					{ path: '/discussion', element: <DiscussionPage /> },
+					{
+						path: '/discussion/:discussionId',
+						element: <DiscussionDetailPage />,
+					},
 				],
 			},
 		],
