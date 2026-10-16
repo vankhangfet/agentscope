@@ -301,14 +301,31 @@ time or interval"
     if channel_tools:
         tools += channel_tools
 
+    workspace_mcps = await workspace.list_mcps(
+        agent_id=agent_record.id,
+        session_id=session_record.id,
+    )
+
+    # The allowlist also gates MCPs, which reach the agent as a separate
+    # channel: a server stays only when the allowlist names one of its
+    # tools (``mcp__{server}__{tool}``). Per-server granularity — the
+    # kept server's other tools remain exposed; naming one tool of a
+    # server keeps that whole server.
+    if allowed_tools:
+        workspace_mcps = [
+            client
+            for client in workspace_mcps
+            if any(
+                name.startswith(f"mcp__{client.name}__")
+                for name in allowed
+            )
+        ]
+
     return Toolkit(
         tools=tools,
         skills_or_loaders=await workspace.list_skills(
             agent_id=agent_record.id,
         ),
-        mcps=await workspace.list_mcps(
-            agent_id=agent_record.id,
-            session_id=session_record.id,
-        ),
+        mcps=workspace_mcps,
         tool_groups=tool_groups,
     )

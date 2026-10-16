@@ -254,7 +254,11 @@ class TestGetToolkitBaseAssembly(IsolatedAsyncioTestCase):
 class TestGetToolkitAgentToolAllowlist(IsolatedAsyncioTestCase):
     """The agent's ``chat_config.tools`` filters its workspace tools."""
 
-    async def _assemble(self, agent: AgentRecord) -> set:
+    async def _assemble(
+        self,
+        agent: AgentRecord,
+        mcps: list | None = None,
+    ) -> tuple:
         session = _make_session(
             user_id="u",
             agent_id=agent.id,
@@ -275,6 +279,7 @@ class TestGetToolkitAgentToolAllowlist(IsolatedAsyncioTestCase):
 
         workspace = _FakeWorkspace(
             tools=[_BashTool(), _ReadTool()],
+            mcps=mcps,
         )
         toolkit = await get_toolkit(
             storage=_NoOpStorage(),  # type: ignore[arg-type]
@@ -296,14 +301,15 @@ class TestGetToolkitAgentToolAllowlist(IsolatedAsyncioTestCase):
             middlewares=[],
             resource_access_service=_make_access(_NoOpStorage()),
         )
-        return set(_tool_names(toolkit))
+        basic = toolkit.tool_groups[0]
+        return set(_tool_names(toolkit)), list(basic.mcps)
 
     async def test_a_named_allowlist_hides_the_other_tools(self) -> None:
         """Naming one tool keeps it and drops every other workspace
         tool — planning and service tools stay regardless."""
         agent = _make_agent()
         agent.data.chat_config.tools = ["ws-read"]
-        names = await self._assemble(agent)
+        names, _ = await self._assemble(agent)
         self.assertIn("ws-read", names)
         self.assertNotIn("ws-bash", names)
         # Service-level capabilities are not workspace tools.
@@ -311,10 +317,59 @@ class TestGetToolkitAgentToolAllowlist(IsolatedAsyncioTestCase):
             {"TaskCreate", "TaskList", "ToolStop"} <= names,
         )
 
+    async def test_the_allowlist_gates_mcps_too(self) -> None:
+        """MCPs ride a separate channel into the toolkit: naming one
+        tool of a server keeps that server and drops the others."""
+        from agentscope.mcp import HttpMCPConfig, MCPClient
+
+        redmine = MCPClient(
+            name="redmine",
+            is_stateful=False,
+            mcp_config=HttpMCPConfig(url="https://redmine.invalid/mcp"),
+        )
+        playwright = MCPClient(
+            name="playwright",
+            is_stateful=False,
+            mcp_config=HttpMCPConfig(url="https://pw.invalid/mcp"),
+        )
+        agent = _make_agent()
+        agent.data.chat_config.tools = [
+            "mcp__redmine__list_issues",
+            "ws-read",
+        ]
+        names, mcps = await self._assemble(agent, mcps=[redmine, playwright])
+        self.assertIn("ws-read", names)
+        self.assertNotIn("ws-bash", names)
+        self.assertEqual([c.name for c in mcps], ["redmine"])
+
+    async def test_an_empty_allowlist_keeps_every_mcp(self) -> None:
+        """No allowlist means every workspace MCP stays."""
+        from agentscope.mcp import HttpMCPConfig, MCPClient
+
+        redmine = MCPClient(
+            name="redmine",
+            is_stateful=False,
+            mcp_config=HttpMCPConfig(url="https://redmine.invalid/mcp"),
+        )
+        playwright = MCPClient(
+            name="playwright",
+            is_stateful=False,
+            mcp_config=HttpMCPConfig(url="https://pw.invalid/mcp"),
+        )
+        agent = _make_agent()
+        _, mcps = await self._assemble(
+            agent,
+            mcps=[redmine, playwright],
+        )
+        self.assertEqual(
+            [c.name for c in mcps],
+            ["redmine", "playwright"],
+        )
+
     async def test_an_empty_allowlist_means_everything(self) -> None:
         """The template default ([]) keeps every workspace tool."""
         agent = _make_agent()
-        names = await self._assemble(agent)
+        names, _ = await self._assemble(agent)
         self.assertIn("ws-bash", names)
         self.assertIn("ws-read", names)
 
