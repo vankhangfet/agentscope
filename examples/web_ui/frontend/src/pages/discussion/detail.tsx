@@ -5,6 +5,7 @@ import { Link, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 
 import { DiscussionStatusBadge } from './components/DiscussionStatusBadge';
+import { LiveSpeakerBar } from './components/LiveSpeakerBar';
 import { DISCUSSION_TERMINAL_STATUSES } from '@/api';
 import type { RoundArgument, RoundEvaluation } from '@/api';
 import { DeleteDialog } from '@/components/dialog/DeleteDialog';
@@ -118,10 +119,12 @@ function RoundSection({ round }: { round: RoundEvaluation }) {
 }
 
 /**
- * The live debate view: header (status, cancel) over the rounds
- * timeline and the conclusion panel once the judge synthesizes it.
+ * The live debate view: header (status, cancel), a live speaker bar
+ * naming who holds the floor right now, the rounds timeline with the
+ * in-progress round's waiting frame, and the conclusion panel once the
+ * judge synthesizes it.
  *
- * Liveness: plain polling — 5s while the discussion is PENDING or
+ * Liveness: plain polling — 2s while the discussion is PENDING or
  * RUNNING, stopping once a fetch reports a terminal status (the SSE
  * stream of the run view follows later, per the design's non-goals).
  */
@@ -133,10 +136,12 @@ export function DiscussionDetailPage() {
 
 	// Poll only while the debate is live: the effect flips the flag on
 	// every fetch, and the final fetch that sees a terminal status is
-	// itself the last poll.
+	// itself the last poll. 2s keeps the live speaker bar and the
+	// in-progress argument feeling close to real time without an SSE
+	// stream (that follows later, per the design's non-goals).
 	const [poll, setPoll] = React.useState(true);
 	const { discussion, error } = useDiscussion(discussionId || null, {
-		refetchInterval: poll ? 5000 : false,
+		refetchInterval: poll ? 2000 : false,
 	});
 	React.useEffect(() => {
 		setPoll(
@@ -229,6 +234,8 @@ export function DiscussionDetailPage() {
 				</header>
 
 				<div className="flex-1 space-y-5 overflow-y-auto px-4 py-4">
+					{live && <LiveSpeakerBar discussion={discussion} />}
+
 					{discussion.conclusion != null && (
 						<section className="rounded-lg border border-green-600/30 bg-green-500/5 p-4">
 							<div className="flex items-center gap-2 text-sm font-semibold text-green-700 dark:text-green-400">
@@ -242,19 +249,26 @@ export function DiscussionDetailPage() {
 					)}
 
 					{discussion.rounds.length === 0 ? (
-						<Empty className="border-none py-10">
-							<EmptyHeader>
-								<EmptyMedia variant="icon">
-									<MessagesSquare />
-								</EmptyMedia>
-								<EmptyTitle>{t('discussion.detail.noRoundsTitle')}</EmptyTitle>
-								<EmptyDescription>
-									{live
-										? t('discussion.detail.noRoundsLive')
-										: t('discussion.detail.noRoundsDone')}
-								</EmptyDescription>
-							</EmptyHeader>
-						</Empty>
+						// The live bar already fills the pre-first-round gap
+						// whenever someone holds the floor; only fall back to
+						// the empty state when nothing is speaking (a PENDING
+						// debate still spinning up, or a terminal one that
+						// ended before any round completed).
+						discussion.current_speaker ? null : (
+							<Empty className="border-none py-10">
+								<EmptyHeader>
+									<EmptyMedia variant="icon">
+										<MessagesSquare />
+									</EmptyMedia>
+									<EmptyTitle>{t('discussion.detail.noRoundsTitle')}</EmptyTitle>
+									<EmptyDescription>
+										{live
+											? t('discussion.detail.noRoundsLive')
+											: t('discussion.detail.noRoundsDone')}
+									</EmptyDescription>
+								</EmptyHeader>
+							</Empty>
+						)
 					) : (
 						discussion.rounds.map((round) => (
 							<RoundSection key={round.round} round={round} />

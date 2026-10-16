@@ -885,6 +885,15 @@
 			"noRoundsTitle": "No rounds yet",
 			"noRoundsLive": "The debate is starting — arguments appear here as rounds complete.",
 			"noRoundsDone": "This discussion ended before any round completed."
+		},
+		"live": {
+			"live": "Live",
+			"debaterSpeaking": "is making their argument…",
+			"debaterWaiting": "Writing the argument…",
+			"judgeName": "Judge",
+			"judgeTag": "Arbitrator",
+			"judgeEvaluating": "is weighing the round…",
+			"judgeWaiting": "Scoring the arguments and checking for consensus…"
 		}
 	},
 	"model-parameters": {

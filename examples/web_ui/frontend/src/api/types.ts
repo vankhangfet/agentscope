@@ -1033,6 +1033,13 @@ export interface DiscussionData {
 	judge: JudgeConfig;
 	/** The blackboard: every finished round, in order. */
 	rounds: RoundEvaluation[];
+	/**
+	 * Who holds the floor right now, for live progress: a debater's
+	 * `name` while that debater argues, `"judge"` while the judge
+	 * verdicts or synthesizes, and `null` when nothing is speaking —
+	 * before dispatch and on every terminal state.
+	 */
+	current_speaker: string | null;
 	/** The final synthesis, once reached. */
 	conclusion: string | null;
 	/** Why the discussion failed, when it did. */

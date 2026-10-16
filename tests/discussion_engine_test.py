@@ -197,6 +197,20 @@ class _FakeRunner:
             self.cancelled_task = asyncio.create_task(
                 self._cancel_engine.cancel(USER, self._cancel_id),
             )
+            # The fake runner never really blocks on I/O (fakeredis
+            # resolves without yielding), so without this the whole
+            # debate loop would run to COMPLETED in one burst before
+            # the scheduled cancel task ever got the event loop. Yield
+            # until cancel() has had its turn and requested cancellation
+            # of the loop task, so the CancelledError is delivered to
+            # this very turn's next await — a real runner's network wait
+            # gives the cancel the same opening for free.
+            assert self._cancel_id is not None
+            loop_task = self._cancel_engine._tasks.get(self._cancel_id)
+            for _ in range(100):
+                if loop_task is not None and loop_task.cancelling() > 0:
+                    break
+                await asyncio.sleep(0)
         await self._storage.upsert_message(user_id, session_id, msg)
         reply: Any = (
             self.script.pop(0) if self.script else self._default(msg)

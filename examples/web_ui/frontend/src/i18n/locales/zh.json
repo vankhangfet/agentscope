@@ -885,6 +885,15 @@
 			"noRoundsTitle": "暂无轮次",
 			"noRoundsLive": "辩论正在开始——轮次完成后会显示在这里。",
 			"noRoundsDone": "该讨论在任何一轮完成之前就结束了。"
+		},
+		"live": {
+			"live": "实时",
+			"debaterSpeaking": "正在陈述观点…",
+			"debaterWaiting": "正在撰写论点…",
+			"judgeName": "裁判",
+			"judgeTag": "仲裁者",
+			"judgeEvaluating": "正在评估本轮…",
+			"judgeWaiting": "正在为论点评分并检查是否达成共识…"
 		}
 	},
 	"model-parameters": {
