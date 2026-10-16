@@ -60,6 +60,7 @@ from .._types import (
     SubAgentTemplate,
 )
 from ._access import ResourceAccessService
+from ._chat_mcp_sync import attach_allowlisted_mcps
 from ._model import get_model
 from ._tts_model import get_tts_model
 from ._toolkit import get_toolkit
@@ -931,6 +932,19 @@ class ChatService:
                     agent_id,
                     session_id,
                     session_record.config.workspace_id,
+                )
+
+                # An agent configured for specific MCP tools gets those
+                # servers from its library — best-effort, idempotent.
+                await attach_allowlisted_mcps(
+                    storage=self._storage,
+                    allowlist=(
+                        agent_record.data.chat_config.tools or []
+                    ),
+                    user_id=user_id,
+                    agent_id=agent_id,
+                    session_id=session_id,
+                    workspace=workspace,
                 )
 
                 # Add workspace working directory to the permission context

@@ -42,6 +42,13 @@ docker run --rm -p 6379:6379 redis:7
 
 Start the agent service:
 
+
+```bash
+# windows
+cd examples\agent_service
+..\.venv\Scripts\python.exe main.py
+```
+
 ```bash
 cd examples/agent_service
 
