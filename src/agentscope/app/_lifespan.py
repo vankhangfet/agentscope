@@ -17,6 +17,7 @@ from ._service import (
     ChannelService,
     CredentialBindingService,
     ChatService,
+    DebateEngine,
     IndexSweeper,
     IndexTaskConsumer,
     IndexWorker,
@@ -30,6 +31,7 @@ from ._service import (
     WorkflowService,
     make_judge_agent_factory,
 )
+from .discussion import configure_discussion
 from .storage import ScheduleRecord
 
 if TYPE_CHECKING:
@@ -248,6 +250,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         chat_service.workflow_engine = workflow_engine
         await workflow_engine.recover_stale_runs()
 
+        # The discussion engine drives debates the facade and the
+        # router create, with the workflow engine's discipline: built
+        # on ChatService (its chat runner), its stale sweep runs
+        # before the app serves traffic, and the facade is pointed at
+        # it so every caller dispatches through the engine this
+        # process owns.
+        discussion_engine = DebateEngine(
+            storage=storage,
+            chat_runner=chat_service.run,
+        )
+        configure_discussion(discussion_engine)
+        app.state.discussion_engine = discussion_engine
+        await discussion_engine.recover_stale()
+
         # Scheduled workflow runs. The scheduler was constructed far
         # above — ChatService takes it, and the engine takes
         # ChatService — so the starter is attached here rather than
@@ -379,12 +395,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
         yield
 
-        # The engine is not stack-acquired (it is built on ChatService,
-        # its chat runner, so it is wired after the stack's early
-        # members), so its dispatcher loops are stopped explicitly here
-        # — while storage and the message bus are still open, before
-        # the stack unwinds underneath them. Runs are left wherever
-        # they are; the next process's recovery sweep resumes them.
+        # The engines are not stack-acquired (both are built on
+        # ChatService, their chat runner, so they are wired after the
+        # stack's early members), so their loops are stopped
+        # explicitly here — while storage and the message bus are
+        # still open, before the stack unwinds underneath them. Runs
+        # and debates are left wherever they are; the next process's
+        # recovery sweep classifies them.
         engine = getattr(app.state, "workflow_engine", None)
         if engine is not None:
             await engine.close()
+        discussion_engine = getattr(app.state, "discussion_engine", None)
+        if discussion_engine is not None:
+            await discussion_engine.close()

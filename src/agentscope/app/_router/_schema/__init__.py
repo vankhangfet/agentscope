@@ -132,6 +132,12 @@ from ._workflow import (
     UpdateWorkflowRequest,
     WorkflowDetailResponse,
 )
+from ._discussion import (
+    CreateDiscussionRequest,
+    CreateDiscussionResponse,
+    DiscussionDetailResponse,
+    ListDiscussionsResponse,
+)
 
 __all__ = [
     # Health
@@ -259,4 +265,9 @@ __all__ = [
     "StartRunResponse",
     "UpdateWorkflowRequest",
     "WorkflowDetailResponse",
+    # Discussion
+    "CreateDiscussionRequest",
+    "CreateDiscussionResponse",
+    "DiscussionDetailResponse",
+    "ListDiscussionsResponse",
 ]

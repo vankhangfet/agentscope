@@ -41,26 +41,30 @@ def configure_discussion(engine: DebateEngine | None) -> None:
     _ENGINE = engine
 
 
-async def discussion(
+async def create_and_dispatch(
     user_id: str,
-    topic: str,
     *,
+    engine: DebateEngine,
+    storage: StorageBase,
+    topic: str,
     debaters: list[DebaterConfig],
     judge: JudgeConfig | None = None,
     max_rounds: int = 3,
-    storage: StorageBase,
-    chat_runner: ChatRunner,
     trigger: str = "manual",
 ) -> DiscussionRecord:
-    """Start a debate and return its persisted PENDING record.
+    """Validate, persist PENDING and dispatch — one source of truth.
 
-    The record is durable before the engine is dispatched, so a crash
-    in between leaves a PENDING discussion the boot sweep fails out
-    honestly. The debate itself runs in the background; poll the
-    record (by id, through the same storage) for rounds and status.
+    Both creators of discussions stand here — the facade and the REST
+    router — so the payload rules (non-empty topic, 1 to 6 uniquely
+    named debaters, ``max_rounds`` within 1..10) and the judge default
+    live exactly once. The record is durable before the engine is
+    dispatched, so a crash in between leaves a PENDING discussion the
+    boot sweep fails out honestly.
 
     Args:
         user_id (`str`): The owner the discussion belongs to.
+        engine (`DebateEngine`): The engine to dispatch through.
+        storage (`StorageBase`): Where the record persists.
         topic (`str`): The issue under debate; non-empty.
         debaters (`list[DebaterConfig]`): Who argues — 1 to 6, each a
             name (unique within the discussion), a stance and a model.
@@ -69,15 +73,12 @@ async def discussion(
             first debater's model.
         max_rounds (`int`, optional): Round ceiling, 1 to 10; the
             debate may stop earlier on judge consensus.
-        storage (`StorageBase`): Where the record persists.
-        chat_runner (`ChatRunner`): Drives one agent turn to
-            completion (``ChatService.run`` in production).
         trigger (`str`, optional): What started the discussion
             (``manual`` | ``api`` | ``chat_tool``), recorded on it.
 
     Returns:
         `DiscussionRecord`: The persisted record as written — PENDING,
-        with its storage-assigned id.
+            with its storage-assigned id.
 
     Raises:
         `ValueError`: The topic is empty, the debater count is outside
@@ -114,14 +115,76 @@ async def discussion(
         ),
     )
     record = await storage.upsert_discussion(user_id, record)
-    engine = _ENGINE
-    if engine is None:
-        engine = DebateEngine(storage, chat_runner)
     await engine.dispatch(user_id, record.id)
     return record
 
 
+async def discussion(
+    user_id: str,
+    topic: str,
+    *,
+    debaters: list[DebaterConfig],
+    judge: JudgeConfig | None = None,
+    max_rounds: int = 3,
+    storage: StorageBase,
+    chat_runner: ChatRunner,
+    trigger: str = "manual",
+) -> DiscussionRecord:
+    """Start a debate and return its persisted PENDING record.
+
+    The registered engine (set by the app lifespan through
+    :func:`configure_discussion`) dispatches when there is one;
+    without one a one-shot engine wraps the caller's storage and chat
+    runner and the debate still runs to completion, only engine-level
+    cancel / close / recovery are out of reach. The record is durable
+    before the engine is dispatched, so a crash in between leaves a
+    PENDING discussion the boot sweep fails out honestly. The debate
+    itself runs in the background; poll the record (by id, through
+    the same storage) for rounds and status.
+
+    Args:
+        user_id (`str`): The owner the discussion belongs to.
+        topic (`str`): The issue under debate; non-empty.
+        debaters (`list[DebaterConfig]`): Who argues — 1 to 6, each a
+            name (unique within the discussion), a stance and a model.
+        judge (`JudgeConfig | None`, optional): The evaluator; ``None``
+            keeps the default neutral prompt and runs the judge on the
+            first debater's model.
+        max_rounds (`int`, optional): Round ceiling, 1 to 10; the
+            debate may stop earlier on judge consensus.
+        storage (`StorageBase`): Where the record persists.
+        chat_runner (`ChatRunner`): Drives one agent turn to
+            completion (``ChatService.run`` in production); used only
+            when no engine is registered.
+        trigger (`str`, optional): What started the discussion
+            (``manual`` | ``api`` | ``chat_tool``), recorded on it.
+
+    Returns:
+        `DiscussionRecord`: The persisted record as written — PENDING,
+        with its storage-assigned id.
+
+    Raises:
+        `ValueError`: The topic is empty, the debater count is outside
+            1..6, two debaters share a name, or ``max_rounds`` is
+            outside 1..10 (the record model's own bounds).
+    """
+    engine = _ENGINE
+    if engine is None:
+        engine = DebateEngine(storage, chat_runner)
+    return await create_and_dispatch(
+        user_id,
+        engine=engine,
+        storage=storage,
+        topic=topic,
+        debaters=debaters,
+        judge=judge,
+        max_rounds=max_rounds,
+        trigger=trigger,
+    )
+
+
 __all__ = [
-    "discussion",
     "configure_discussion",
+    "create_and_dispatch",
+    "discussion",
 ]

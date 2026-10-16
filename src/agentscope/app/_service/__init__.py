@@ -13,6 +13,7 @@ from ._credential_binding import (
     CredentialBindingService,
 )
 from ._chat import ChatService
+from .discussion import DebateEngine
 from ._embedding import get_embedding_model
 from ._index_sweeper import IndexSweeper
 from ._index_task_consumer import IndexTaskConsumer
@@ -47,6 +48,7 @@ __all__ = [
     "CredentialBindingError",
     "ChatService",
     "CredentialView",
+    "DebateEngine",
     "GitStatus",
     "IndexSweeper",
     "IndexTaskConsumer",
