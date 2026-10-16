@@ -153,6 +153,15 @@ optional):
     # The general tools running in the workspace
     tools = await workspace.list_tools()
 
+    # The agent's own tool allowlist, when it names any: only the named
+    # workspace tools reach this agent. Empty means everything — the
+    # template default. (Planning/schedule/team/etc. tools below are
+    # service-level capabilities and stay on regardless.)
+    allowed_tools = agent_record.data.chat_config.tools or []
+    if allowed_tools:
+        allowed = set(allowed_tools)
+        tools = [t for t in tools if t.name in allowed]
+
     # Planning tools — always on.
     tools += [TaskCreate(), TaskList(), TaskGet(), TaskUpdate()]
 

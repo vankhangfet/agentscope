@@ -251,6 +251,74 @@ class TestGetToolkitBaseAssembly(IsolatedAsyncioTestCase):
         )
 
 
+class TestGetToolkitAgentToolAllowlist(IsolatedAsyncioTestCase):
+    """The agent's ``chat_config.tools`` filters its workspace tools."""
+
+    async def _assemble(self, agent: AgentRecord) -> set:
+        session = _make_session(
+            user_id="u",
+            agent_id=agent.id,
+            with_model=False,
+        )
+
+        class _BashTool(_StubTool):
+            """One of the two workspace tools."""
+
+            name: str = "ws-bash"
+            description: str = "stub workspace tool"
+
+        class _ReadTool(_StubTool):
+            """The other workspace tool."""
+
+            name: str = "ws-read"
+            description: str = "stub workspace tool"
+
+        workspace = _FakeWorkspace(
+            tools=[_BashTool(), _ReadTool()],
+        )
+        toolkit = await get_toolkit(
+            storage=_NoOpStorage(),  # type: ignore[arg-type]
+            workspace=workspace,  # type: ignore[arg-type]
+            workspace_manager=FakeWorkspaceManager(),
+            scheduler_manager=SchedulerManager(
+                storage=_NoOpStorage(),  # type: ignore[arg-type]
+                message_bus=_NullBus(),  # type: ignore[arg-type]
+                workspace_manager=FakeWorkspaceManager(),
+            ),
+            background_task_manager=BackgroundTaskManager(
+                message_bus=_NullBus(),  # type: ignore[arg-type]
+            ),
+            message_bus=_NullBus(),  # type: ignore[arg-type]
+            user_id="u",
+            agent_record=agent,
+            session_record=session,
+            extra_factory=None,
+            middlewares=[],
+            resource_access_service=_make_access(_NoOpStorage()),
+        )
+        return set(_tool_names(toolkit))
+
+    async def test_a_named_allowlist_hides_the_other_tools(self) -> None:
+        """Naming one tool keeps it and drops every other workspace
+        tool — planning and service tools stay regardless."""
+        agent = _make_agent()
+        agent.data.chat_config.tools = ["ws-read"]
+        names = await self._assemble(agent)
+        self.assertIn("ws-read", names)
+        self.assertNotIn("ws-bash", names)
+        # Service-level capabilities are not workspace tools.
+        self.assertTrue(
+            {"TaskCreate", "TaskList", "ToolStop"} <= names,
+        )
+
+    async def test_an_empty_allowlist_means_everything(self) -> None:
+        """The template default ([]) keeps every workspace tool."""
+        agent = _make_agent()
+        names = await self._assemble(agent)
+        self.assertIn("ws-bash", names)
+        self.assertIn("ws-read", names)
+
+
 class TestGetToolkitWorkerVariant(IsolatedAsyncioTestCase):
     """A session passed ``team_role="worker"`` only gets ``TeamSay``;
     the role is resolved by the caller, not looked up here."""
