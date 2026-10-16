@@ -66,6 +66,16 @@ def _watch_error() -> type[BaseException]:
 # ``list_active_workflow_runs`` (self-healing) so the two cannot drift.
 _ACTIVE_RUN_STATUSES = (RunStatus.RUNNING, RunStatus.WAITING_HUMAN)
 
+# Statuses that keep a discussion in the global active index. The boot
+# sweep fails out anything still in these states (an interrupted
+# debate); terminal states need no engine. Shared by
+# ``upsert_discussion`` (index maintenance) and
+# ``list_active_discussions`` (self-healing) so the two cannot drift.
+_ACTIVE_DISCUSSION_STATUSES = (
+    DiscussionStatus.PENDING,
+    DiscussionStatus.RUNNING,
+)
+
 _logger = logging.getLogger(__name__)
 
 
@@ -159,6 +169,11 @@ class RedisStorage(StorageBase):
             "agentscope:user:{user_id}:discussion:{discussion_id}"
         )
         discussion_index: str = "agentscope:user:{user_id}:discussions"
+        # Global set of ``user_id:discussion_id`` entries for every
+        # non-terminal discussion; read by the startup stale sweep.
+        discussion_active_index: str = (
+            "agentscope:discussions:active"
+        )
 
         team: str = "agentscope:user:{user_id}:team:{team_id}"
         team_index: str = "agentscope:user:{user_id}:teams"
@@ -2152,9 +2167,11 @@ class RedisStorage(StorageBase):
     ) -> DiscussionRecord:
         """Persist a discussion and index it under the user.
 
-        No global active index (unlike workflow runs): discussions
-        are bounded and short, so the per-user index is all listing
-        needs.
+        Also maintains the global active index: the discussion's
+        ``user_id:discussion_id`` entry is added while it is PENDING or
+        RUNNING and removed in any other state, so the startup stale
+        sweep only ever sees discussions a crashed process left
+        mid-flight.
         """
         record.updated_at = datetime.now()
         key = self._key(
@@ -2163,7 +2180,7 @@ class RedisStorage(StorageBase):
             discussion_id=record.id,
         )
         # This write runs on every engine transition, so the record
-        # SET (plus its optional sliding EXPIRE) and the index update
+        # SET (plus its optional sliding EXPIRE) and both index updates
         # go out as one non-transactional pipeline instead of
         # sequential round trips.
         async with self._client.pipeline(transaction=False) as pipe:
@@ -2177,6 +2194,17 @@ class RedisStorage(StorageBase):
                 ),
                 record.id,
             )
+            entry = f"{user_id}:{record.id}"
+            if record.data.status in _ACTIVE_DISCUSSION_STATUSES:
+                pipe.sadd(
+                    self.key_config.discussion_active_index,
+                    entry,
+                )
+            else:
+                pipe.srem(
+                    self.key_config.discussion_active_index,
+                    entry,
+                )
             await pipe.execute()
         return record
 
@@ -2241,13 +2269,17 @@ class RedisStorage(StorageBase):
         user_id: str,
         discussion_id: str,
     ) -> bool:
-        """Delete one discussion and its index entry."""
+        """Delete one discussion and both of its index entries."""
         await self._client.srem(
             self._key(
                 self.key_config.discussion_index,
                 user_id=user_id,
             ),
             discussion_id,
+        )
+        await self._client.srem(
+            self.key_config.discussion_active_index,
+            f"{user_id}:{discussion_id}",
         )
         deleted = await self._client.delete(
             self._key(
@@ -2257,6 +2289,60 @@ class RedisStorage(StorageBase):
             ),
         )
         return bool(deleted)
+
+    async def list_active_discussions(self) -> list[DiscussionRecord]:
+        """Every non-terminal discussion across all users, per the
+        active index.
+
+        Self-healing, mirroring :meth:`list_active_workflow_runs`:
+        entries whose record key has expired, been deleted externally,
+        whose stored JSON no longer parses (the sweep must survive a
+        corrupt row), or whose discussion has since reached a terminal
+        state (the terminal upsert's ``srem`` was lost) are pruned from
+        the index rather than returned. Record reads are batched
+        through one MGET — the sweep runs on every startup.
+        """
+        active_key = self.key_config.discussion_active_index
+        # ``resolved`` holds (entry, user_id, discussion_id) triples;
+        # the key list below keeps its order so the MGET results zip
+        # up. Split from the right: ids come from a user-overridable
+        # factory, so only the colon this module wrote between user_id
+        # and discussion_id can be assumed safe.
+        resolved: list[tuple[str, str, str]] = []
+        stale: list[str] = []
+        for entry in await self._client.smembers(active_key):
+            try:
+                user_id, discussion_id = entry.rsplit(":", 1)
+            except ValueError:
+                stale.append(entry)
+                continue
+            resolved.append((entry, user_id, discussion_id))
+        keys = [
+            self._key(
+                self.key_config.discussion,
+                user_id=user_id,
+                discussion_id=discussion_id,
+            )
+            for _entry, user_id, discussion_id in resolved
+        ]
+        values = await self._client.mget(keys) if keys else []
+        records: list[DiscussionRecord] = []
+        for (entry, _user_id, _discussion_id), raw in zip(resolved, values):
+            if raw is None:
+                stale.append(entry)
+                continue
+            try:
+                record = DiscussionRecord.model_validate_json(raw)
+            except ValueError:
+                stale.append(entry)
+                continue
+            if record.data.status in _ACTIVE_DISCUSSION_STATUSES:
+                records.append(record)
+            else:
+                stale.append(entry)
+        if stale:
+            await self._client.srem(active_key, *stale)
+        return records
 
     # ------------------------------------------------------------------
     # Team persistence

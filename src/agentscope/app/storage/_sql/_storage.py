@@ -2465,3 +2465,41 @@ class AsyncSQLAlchemyStorage(StorageBase):
             )
             await sess.commit()
         return result.rowcount > 0
+
+    async def list_active_discussions(self) -> list[DiscussionRecord]:
+        """Every non-terminal discussion across all users (stale sweep).
+
+        ``status`` is a promoted column, so the filter runs in the
+        database and terminal rows are never deserialised. A row whose
+        payload no longer validates against the record schema is named
+        in a warning and skipped — mirroring the Redis path's
+        self-healing sweep — so one poisoned row cannot abort every
+        boot's sweep.
+        """
+        from sqlalchemy import select
+
+        stmt = select(DiscussionRow).where(
+            DiscussionRow.status.in_(
+                (
+                    DiscussionStatus.PENDING.value,
+                    DiscussionStatus.RUNNING.value,
+                ),
+            ),
+        )
+        async with self._session() as sess:
+            rows = (await sess.execute(stmt)).scalars().all()
+        records: list[DiscussionRecord] = []
+        for row in rows:
+            try:
+                records.append(_to_record(row, DiscussionRecord))
+            except (ValueError, TypeError) as exc:
+                # pydantic's ValidationError (a ValueError) on a
+                # payload that is valid JSON but not a valid record,
+                # or a TypeError from ``dict()`` on a payload that is
+                # not even an object.
+                _logger.warning(
+                    "Skipping unreadable discussion row %r: %s",
+                    row.id,
+                    exc,
+                )
+        return records

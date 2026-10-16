@@ -1104,6 +1104,16 @@ class StorageBase(ABC):
     ) -> bool:
         """Delete a discussion; True when it existed."""
 
+    @abstractmethod
+    async def list_active_discussions(self) -> list[DiscussionRecord]:
+        """Every non-terminal discussion across all users.
+
+        Backs the discussion engine's boot-time stale sweep: a record
+        still PENDING or RUNNING after a restart was interrupted
+        mid-flight, and the sweep is the only reader that needs the
+        cross-user view (listing is per-user).
+        """
+
     # ------------------------------------------------------------------
     # Team persistence
     # ------------------------------------------------------------------
