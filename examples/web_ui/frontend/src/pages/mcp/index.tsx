@@ -15,6 +15,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { AddIntegrationSection } from './components/AddIntegrationSection';
 import { hubApi } from '@/api';
 import type { HubInfo, IntegrationPreset, MCPCard, MCPView } from '@/api';
+import { AddCustomMcpDialog } from '@/components/dialog/AddCustomMcpDialog.tsx';
 import { AddIntegrationDialog } from '@/components/dialog/AddIntegrationDialog.tsx';
 import { InstallMCPDialog } from '@/components/dialog/InstallMCPDialog.tsx';
 import { TestMCPDialog } from '@/components/dialog/TestMCPDialog.tsx';
@@ -357,6 +358,9 @@ function MinePanel({ mcps, loading, presets, onEdit, onRemove, onAdded }: MinePa
 	const [query, setQuery] = useState('');
 	// The installed MCP whose connection-test dialog is open, or null.
 	const [testing, setTesting] = useState<MCPView | null>(null);
+	// The hand-written path into the library — a config typed in directly,
+	// for servers no hub or preset carries.
+	const [addingCustom, setAddingCustom] = useState(false);
 
 	// Filtered client-side: the library is the user's own and small, so a
 	// round trip per keystroke would buy nothing.
@@ -385,11 +389,26 @@ function MinePanel({ mcps, loading, presets, onEdit, onRemove, onAdded }: MinePa
 					: undefined
 			}
 		>
-			<AddIntegrationSection presets={presets} onAdded={onAdded} />
+			<AddIntegrationSection
+				presets={presets}
+				onAdded={onAdded}
+				// Beside the one-click adds, so both paths into the library
+				// read as one choice — pick a preset or write your own.
+				action={
+					<Button
+						variant="outline"
+						className="h-7 rounded-full px-3.5 text-xs font-normal"
+						onClick={() => setAddingCustom(true)}
+					>
+						<Plug className="size-3.5" />
+						{t('mcp.custom.addButton')}
+					</Button>
+				}
+			/>
 
-			{/* Splits the one-click adds from the library rows; hidden
-			    alongside the section when the catalog is empty. */}
-			{presets.length > 0 && <Separator className="mt-4" />}
+			{/* Splits the add paths (presets or the custom button, which is
+			    always there) from the library rows. */}
+			<Separator className="mt-4" />
 
 			{loading ? (
 				<div className="flex justify-center py-10">
@@ -521,6 +540,12 @@ function MinePanel({ mcps, loading, presets, onEdit, onRemove, onAdded }: MinePa
 				onOpenChange={(open) => {
 					if (!open) setTesting(null);
 				}}
+			/>
+
+			<AddCustomMcpDialog
+				open={addingCustom}
+				onOpenChange={setAddingCustom}
+				onCreated={onAdded}
 			/>
 		</ResourcePanel>
 	);

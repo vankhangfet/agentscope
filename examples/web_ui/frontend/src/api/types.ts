@@ -772,6 +772,15 @@ export interface CreateFromPresetResponse {
 	mcp_id: string;
 }
 
+/**
+ * Body of `POST /mcp/custom` — a hand-written server config, sent exactly
+ * as it should run. Wraps {@link MCPClient} so the backend validates the
+ * same discriminated union every other consumer goes through.
+ */
+export interface CreateCustomMcpRequest {
+	client: MCPClient;
+}
+
 // ─── Available MCP tools ──────────────────────────────────────────────────────
 
 /** One tool an installed MCP offers, as listed by `GET /mcp/tools`. */

@@ -1,5 +1,6 @@
 import { client } from './client';
 import type {
+	CreateCustomMcpRequest,
 	CreateFromPresetRequest,
 	CreateFromPresetResponse,
 	ListMcpToolsResponse,
@@ -43,6 +44,25 @@ export const mcpApi = {
 	 */
 	create: (body: CreateFromPresetRequest, options?: { silent?: boolean }) =>
 		client.post<CreateFromPresetResponse>('/mcp', body, undefined, options),
+
+	/**
+	 * Adds a hand-written server config to the library — for servers the
+	 * hub and preset catalogs do not carry. Like a preset create this
+	 * touches no workspace and is not connection-tested; the record has
+	 * no provenance, so re-keying it is refused while rename/enable and
+	 * the Test button work as for any MCP. A 409 means the name is
+	 * taken; a 422 names the invalid field.
+	 */
+	createCustom: (
+		mcpClient: CreateCustomMcpRequest['client'],
+		options?: { silent?: boolean },
+	) =>
+		client.post<CreateFromPresetResponse>(
+			'/mcp/custom',
+			{ client: mcpClient } satisfies CreateCustomMcpRequest,
+			undefined,
+			options,
+		),
 
 	/**
 	 * Renames, enables/disables, or re-keys it. Changing `values` is a
