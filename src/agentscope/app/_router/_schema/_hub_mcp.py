@@ -3,6 +3,7 @@
 preset, and editing what is installed."""
 from pydantic import BaseModel, Field
 
+from ....mcp import MCPClient
 from ...storage import MCPRecord
 
 
@@ -178,6 +179,19 @@ class CreateFromPresetResponse(BaseModel):
     """The body of a successful direct create."""
 
     mcp_id: str = Field(description="The installed-MCP record id.")
+
+
+class CreateCustomMcpRequest(BaseModel):
+    """The body of a hand-written MCP create.
+
+    Wraps the connectable config so the endpoint validates the same
+    discriminated union (stdio command/args/env or http url/headers)
+    every other consumer of :class:`MCPClient` already go through.
+    """
+
+    client: MCPClient = Field(
+        description="The MCP server config, exactly as it will run.",
+    )
 
 
 class McpToolView(BaseModel):

@@ -25,6 +25,7 @@ from .._service import (
 from ..storage import MCPRecord, StorageBase
 from ...mcp import MCPClient
 from ._schema import (
+    CreateCustomMcpRequest,
     CreateFromPresetRequest,
     CreateFromPresetResponse,
     ListMcpToolsResponse,
@@ -273,6 +274,55 @@ async def create_mcp(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"{e} Pass a different 'name' to add it alongside.",
+        ) from e
+
+    return CreateFromPresetResponse(mcp_id=mcp_id)
+
+
+@mcp_router.post(
+    "/custom",
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_custom_mcp(
+    body: CreateCustomMcpRequest,
+    user_id: str = Depends(get_current_user_id),
+    storage: StorageBase = Depends(get_storage),
+) -> CreateFromPresetResponse:
+    """Add a hand-written MCP server to the library.
+
+    For servers the hub and preset catalogs do not carry: the caller
+    already knows the config — a stdio command/args/env or an http
+    url/headers — and sends it exactly as it should run. The record is
+    stored with no provenance (``hub_id``/``card_id`` both ``None``),
+    so a later re-key through ``PATCH values`` answers the hand-added
+    refusal; rename/enable and the Test button work as for any other
+    MCP. Like the preset create, the config is not connection-tested
+    here — the ``POST /mcp/{id}/test`` endpoint exists for that.
+
+    Raises:
+        `HTTPException`: 422 if the client config fails validation
+            (name not ``[a-zA-Z0-9_-]+``, missing command/url), or 409
+            if the name is taken.
+    """
+    record = MCPRecord(
+        user_id=user_id,
+        client=body.client,
+        values={},
+        display_name=body.client.name,
+        description="",
+    )
+    try:
+        mcp_id = await storage.upsert_mcp(user_id, record)
+    except ValueError as e:
+        # ``MCPClient`` refusing the name, or a per-user name clash —
+        # both the caller's to resolve, like the preset create above.
+        raise HTTPException(
+            status_code=(
+                status.HTTP_409_CONFLICT
+                if "already" in str(e)
+                else status.HTTP_422_UNPROCESSABLE_CONTENT
+            ),
+            detail=f"{e}",
         ) from e
 
     return CreateFromPresetResponse(mcp_id=mcp_id)

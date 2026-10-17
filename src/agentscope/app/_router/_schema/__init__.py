@@ -15,6 +15,7 @@ from ._chat import ChatRequest, ChatTriggerResponse
 from ._health import ComponentStatus, HealthResponse
 from ._hub import HubInfo
 from ._hub_mcp import (
+    CreateCustomMcpRequest,
     CreateFromPresetRequest,
     CreateFromPresetResponse,
     InstallMCPRequest,
@@ -145,6 +146,7 @@ __all__ = [
     "HealthResponse",
     # Hub
     "CreateFromPresetRequest",
+    "CreateCustomMcpRequest",
     "CreateFromPresetResponse",
     "HubInfo",
     "InstallMCPRequest",
