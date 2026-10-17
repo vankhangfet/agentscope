@@ -336,7 +336,14 @@ export function AddCustomMcpDialog({ open, onOpenChange, onCreated }: Props) {
 									{t('mcp.custom.statefulDescription')}
 								</span>
 							</div>
-							<Switch checked={stateful} onCheckedChange={setStateful} />
+							{/* Stdio servers are always stateful (the backend
+							    refuses stdio+stateless outright), so the
+							    switch only applies to http servers. */}
+							<Switch
+								checked={kind === 'stdio' ? true : stateful}
+								onCheckedChange={setStateful}
+								disabled={kind === 'stdio'}
+							/>
 						</div>
 					</Field>
 				</FieldGroup>

@@ -314,15 +314,12 @@ async def create_custom_mcp(
     try:
         mcp_id = await storage.upsert_mcp(user_id, record)
     except ValueError as e:
-        # ``MCPClient`` refusing the name, or a per-user name clash —
-        # both the caller's to resolve, like the preset create above.
+        # Pydantic validated the config before this handler ran, so
+        # the only ValueError left is the per-user name clash — like
+        # the preset create above.
         raise HTTPException(
-            status_code=(
-                status.HTTP_409_CONFLICT
-                if "already" in str(e)
-                else status.HTTP_422_UNPROCESSABLE_CONTENT
-            ),
-            detail=f"{e}",
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"{e} Pass a different 'name' to add it alongside.",
         ) from e
 
     return CreateFromPresetResponse(mcp_id=mcp_id)
