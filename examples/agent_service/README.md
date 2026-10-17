@@ -1,85 +1,85 @@
 # Agent Service
 
-Agent service is a FastAPI-based, multi-tenant and multi-session service built with AgentScope 2.0.
+A FastAPI-based, multi-user agent platform built with AgentScope 2.0: chat agents with tools, a drag-and-drop workflow builder, multi-agent discussions, and notification channels — all configured through the companion Web UI.
 
-This example demonstrates
+## Features
 
-- how to set up the agent service with Redis storage, and
-- how to launch the service and its companion Web UI
+**Agents**
+- Chat with agents that use tools (MCP servers, task planning, schedules, workflows)
+- Per-agent configuration: system prompt, model, allowed tools, long-term memory
+- Built-in tool approval (human-in-the-loop) and permission modes
 
-Details about the agent service please refer to the [tutorial](https://docs.agentscope.io/latest/en/deploy/agent-service).
+**Models**
+- Bring any provider: OpenAI, DashScope, Anthropic, DeepSeek, Gemini, Ollama, ...
+- Custom Provider for any OpenAI-compatible endpoint (vLLM, LiteLLM, ...) — enter base URL, API key, and model names; test the connection before use
+- Per-user credential storage; secrets never leave the server
 
-## Prerequisites
+**MCP Servers**
+- One-click integrations (GitLab, Redmine) and hub installs
+- Add any custom MCP server by hand (stdio command/args/env or HTTP URL/headers)
+- Test button verifies each server connection; the agent form's tool picker lists the available tools per server
 
-- Python ≥ 3.11
-- Node.js ≥ 20 with `npx`
-- [optional] Gaode/AMap API key in `AMAP_API_KEY` (for the `amap` MCP)
+**Workflows**
+- Build DAGs on a drag-and-drop canvas: agent nodes, condition branches, loops, and approval gates
+- Validate graphs client-side, run them manually, on a schedule, via REST API, or as a chat tool
+- Watch runs live (per-node status, logs, outputs) and approve or cancel from the UI
+
+**Discussions**
+- Multi-agent debates: any number of debaters, each with its own stance and model, plus a judge that scores arguments and detects consensus
+- Configurable number of rounds; live view shows each argument as it is made
+- Domain-agnostic — the same mechanism works for project management, architecture, code review, or security debates
+
+**Channels & Notifications**
+- Telegram bot (two-way chat)
+- MS Teams push notifications (via Incoming Webhook) and a `send_teams_notification` agent tool
+- DingTalk, Discord, and Feishu channels
+- Cron schedules for any agent or workflow (e.g. a daily digest posted to Teams)
 
 ## Quickstart
 
-Install AgentScope from PyPI or source:
+Requirements: Python ≥ 3.11, Redis, Node.js ≥ 20 (`npx` for MCP servers, optional `uvx` for Redmine).
+
+Start Redis (Docker is easiest):
+
+```bash
+docker run -d -p 6379:6379 redis:7
+```
+
+Install and start the service:
 
 ```bash
 uv pip install agentscope[full]
-# or
-# uv pip install -e [full]
-```
 
-Install Redis and start it as backend storage:
+# Linux/macOS
+cd examples/agent_service
+python main.py
 
-```bash
-# macOS (Homebrew)
-brew install redis
-brew services start redis
-
-# Linux (systemd)
-sudo apt install redis-server
-sudo systemctl start redis-server
-
-# Docker (cross-platform)
-docker run --rm -p 6379:6379 redis:7
-```
-
-Start the agent service:
-
-
-```bash
-# windows
+# Windows (from the repo's venv)
 cd examples\agent_service
 ..\.venv\Scripts\python.exe main.py
 ```
 
-```bash
-cd examples/agent_service
-
-python main.py
-```
-
-Launch the Web UI in a separate terminal to experience a chat-style interface:
+Start the Web UI in a second terminal:
 
 ```bash
-cd examples/web_ui/
-
+cd examples/web_ui
 pnpm install
-# or npm install
-
-# Run in dev mode
 pnpm dev
 ```
 
-After that, you can set the API endpoint `http://localhost:8000` in the Web UI and start experiencing the agent service.
+Open the UI (usually `http://localhost:5173`), point it at `http://localhost:8000`, then:
 
-<img src="https://gw.alicdn.com/imgextra/i2/O1CN01Phmg1G1brIVC8WXyU_!!6000000003518-2-tps-2938-1736.png" alt="Web UI Screenshot" width="100%">
+1. **Credentials** — add an API key (or a Custom Provider with your endpoint)
+2. **MCP** — install the GitLab/Redmine integrations or add your own server
+3. **Agents** — create an agent with a model and tools
+4. Chat, schedule, or build a workflow
 
-## What Next
+## Scheduling & Automation
 
-- You can customize the service in `main.py` by adding your own MCPs, middlewares, or workspace manager implementations.
+- Give any agent a cron schedule (`Schedule` page) — the agent runs on time and its reply can be pushed to a channel
+- Workflows run on schedules too; agents can call `run_workflow` as a tool
+- Everything is also available over REST — see the interactive docs at `http://localhost:8000/docs`
 
-- Experience the agent service, including
-    - human-in-the-loop interactions & permission system
-<img src="https://gw.alicdn.com/imgextra/i1/O1CN01vGGiBw20agWwpzmjy_!!6000000006866-2-tps-2934-1732.png" alt="Permission System" width="100%">
+## Customization
 
-    - schedule tasks
-<img src="https://gw.alicdn.com/imgextra/i1/O1CN01Xi3Qw71E2haKKu4z0_!!6000000000294-2-tps-2932-1738.png" alt="Schedule Tasks" width="100%">
-
-    - and more! (stay tuned for future updates)
+Edit `main.py` to register default MCP servers, custom subagent templates, extra middlewares, or additional channels. See the [tutorial](https://docs.agentscope.io/latest/en/deploy/agent-service) for details.
