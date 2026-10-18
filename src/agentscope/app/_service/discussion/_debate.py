@@ -165,6 +165,55 @@ class DebateEngine:
                     exc_info=True,
                 )
 
+    async def run_to_completion(
+        self,
+        user_id: str,
+        discussion_id: str,
+    ) -> DiscussionRecord:
+        """Drive one discussion to its terminal record and return it.
+
+        For orchestrators and tests that need a discussion finished
+        inline rather than dispatched — the factory's phases await
+        their discussions through here. When this engine is already
+        driving the discussion, that live loop task is awaited (never
+        raced with a second completion body); otherwise the
+        deterministic core runs directly in this coroutine.
+
+        Args:
+            user_id (`str`): The discussion's owner.
+            discussion_id (`str`): The discussion to finish.
+
+        Returns:
+            `DiscussionRecord`: The final record, whatever terminal
+                state the debate reached — conclusion or error on it.
+
+        Raises:
+            `HTTPException`: 404 when the discussion is missing.
+        """
+        record = await self._storage.get_discussion(user_id, discussion_id)
+        if record is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Discussion {discussion_id!r} not found.",
+            )
+        live = self._tasks.get(discussion_id)
+        if live is not None and not live.done():
+            try:
+                await live
+            except asyncio.CancelledError:
+                # The loop was cancelled (a cancel, a close); the
+                # record, reloaded below, carries the outcome.
+                pass
+        else:
+            await self._run_to_completion(user_id, discussion_id)
+        final = await self._storage.get_discussion(user_id, discussion_id)
+        if final is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Discussion {discussion_id!r} not found.",
+            )
+        return final
+
     async def _run_to_completion(
         self,
         user_id: str,
