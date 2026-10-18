@@ -78,6 +78,13 @@ from ._model import (
     JudgeConfig,
     RoundArgument,
     RoundEvaluation,
+    FactoryDecision,
+    FactoryMode,
+    FactoryPhase,
+    FactoryStatus,
+    FactoryTask,
+    FactoryTicketData,
+    FactoryTicketRecord,
 )
 
 # A validation helper rather than a model, so it comes straight from its
@@ -192,5 +199,13 @@ __all__ = [
     "DiscussionData",
     "DiscussionStatus",
     "DiscussionRecord",
+    # The factory models
+    "FactoryMode",
+    "FactoryPhase",
+    "FactoryStatus",
+    "FactoryTask",
+    "FactoryDecision",
+    "FactoryTicketData",
+    "FactoryTicketRecord",
     "validate_workflow_graph",
 ]

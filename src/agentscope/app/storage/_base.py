@@ -12,6 +12,8 @@ from ._model import (
     CredentialRecord,
     DiscussionRecord,
     DiscussionStatus,
+    FactoryStatus,
+    FactoryTicketRecord,
     KnowledgeBaseRecord,
     KnowledgeDocumentRecord,
     KnowledgeDocumentStatus,
@@ -1112,6 +1114,55 @@ class StorageBase(ABC):
         still PENDING or RUNNING after a restart was interrupted
         mid-flight, and the sweep is the only reader that needs the
         cross-user view (listing is per-user).
+        """
+
+    # ------------------------------------------------------------------
+    # Factory tickets
+    # ------------------------------------------------------------------
+
+    @abstractmethod
+    async def upsert_factory_ticket(
+        self,
+        user_id: str,
+        record: FactoryTicketRecord,
+    ) -> FactoryTicketRecord:
+        """Persist a factory ticket (create or overwrite)."""
+
+    @abstractmethod
+    async def get_factory_ticket(
+        self,
+        user_id: str,
+        ticket_id: str,
+    ) -> FactoryTicketRecord | None:
+        """Fetch one factory ticket by id, or None when absent."""
+
+    @abstractmethod
+    async def list_factory_tickets(
+        self,
+        user_id: str,
+        status: FactoryStatus | None = None,
+    ) -> list[FactoryTicketRecord]:
+        """The user's tickets, newest first; optionally one status
+        (``None`` means unfiltered)."""
+
+    @abstractmethod
+    async def delete_factory_ticket(
+        self,
+        user_id: str,
+        ticket_id: str,
+    ) -> bool:
+        """Delete a factory ticket; True when it existed."""
+
+    @abstractmethod
+    async def list_active_factory_tickets(self) -> list[FactoryTicketRecord]:
+        """Every non-terminal factory ticket across all users.
+
+        Backs the factory engine's boot-time sweep, mirroring
+        :meth:`list_active_discussions`. A ticket still PENDING,
+        RUNNING or WAITING_HUMAN after a restart needs the sweep's
+        attention: the first two were interrupted mid-flight, and a
+        parked WAITING_HUMAN may never see its human return, so the
+        sweep must bring it back to a state the UI can act on.
         """
 
     # ------------------------------------------------------------------

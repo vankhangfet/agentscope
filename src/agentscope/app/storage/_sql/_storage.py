@@ -28,6 +28,8 @@ from .._model import (
     CredentialRecord,
     DiscussionRecord,
     DiscussionStatus,
+    FactoryStatus,
+    FactoryTicketRecord,
     KnowledgeBaseRecord,
     KnowledgeDocumentRecord,
     KnowledgeDocumentStatus,
@@ -52,6 +54,7 @@ from ._tables import (
     ChannelRow,
     CredentialRow,
     DiscussionRow,
+    FactoryTicketRow,
     KnowledgeBaseRow,
     KnowledgeDocumentRow,
     MCPRow,
@@ -2499,6 +2502,111 @@ class AsyncSQLAlchemyStorage(StorageBase):
                 # not even an object.
                 _logger.warning(
                     "Skipping unreadable discussion row %r: %s",
+                    row.id,
+                    exc,
+                )
+        return records
+
+    # ------------------------------------------------------------------
+    # Factory tickets
+    # ------------------------------------------------------------------
+
+    async def upsert_factory_ticket(
+        self,
+        user_id: str,
+        record: FactoryTicketRecord,
+    ) -> FactoryTicketRecord:
+        """Persist a factory ticket (create or overwrite)."""
+        _ = user_id  # scoping is enforced by the caller
+        return await self._write_row(FactoryTicketRow, record)
+
+    async def get_factory_ticket(
+        self,
+        user_id: str,
+        ticket_id: str,
+    ) -> FactoryTicketRecord | None:
+        """Fetch one factory ticket; owner-scoped."""
+        async with self._session() as sess:
+            row = await sess.get(FactoryTicketRow, ticket_id)
+        if row is None or row.user_id != user_id:
+            return None
+        return _to_record(row, FactoryTicketRecord)
+
+    async def list_factory_tickets(
+        self,
+        user_id: str,
+        status: FactoryStatus | None = None,
+    ) -> list[FactoryTicketRecord]:
+        """Return the user's tickets, newest first, filtered in the
+        database."""
+        from sqlalchemy import select
+
+        stmt = select(FactoryTicketRow).where(
+            FactoryTicketRow.user_id == user_id,
+        )
+        if status is not None:
+            stmt = stmt.where(FactoryTicketRow.status == status.value)
+        stmt = stmt.order_by(FactoryTicketRow.created_at.desc())
+
+        async with self._session() as sess:
+            rows = (await sess.execute(stmt)).scalars().all()
+        return [_to_record(r, FactoryTicketRecord) for r in rows]
+
+    async def delete_factory_ticket(
+        self,
+        user_id: str,
+        ticket_id: str,
+    ) -> bool:
+        """Delete one factory ticket; owner-scoped."""
+        from sqlalchemy import delete
+
+        async with self._session() as sess:
+            result = await sess.execute(
+                delete(FactoryTicketRow).where(
+                    FactoryTicketRow.id == ticket_id,
+                    FactoryTicketRow.user_id == user_id,
+                ),
+            )
+            await sess.commit()
+        return result.rowcount > 0
+
+    async def list_active_factory_tickets(self) -> list[FactoryTicketRecord]:
+        """Every non-terminal factory ticket across all users (boot
+        sweep).
+
+        WAITING_HUMAN counts as non-terminal: the human may never
+        return, so a restart must sweep the parked ticket back to a
+        state the UI can act on. ``status`` is a promoted column, so
+        the filter runs in the database and terminal rows are never
+        deserialised. A row whose payload no longer validates against
+        the record schema is named in a warning and skipped —
+        mirroring the Redis path's self-healing sweep — so one
+        poisoned row cannot abort every boot's sweep.
+        """
+        from sqlalchemy import select
+
+        stmt = select(FactoryTicketRow).where(
+            FactoryTicketRow.status.in_(
+                (
+                    FactoryStatus.PENDING.value,
+                    FactoryStatus.RUNNING.value,
+                    FactoryStatus.WAITING_HUMAN.value,
+                ),
+            ),
+        )
+        async with self._session() as sess:
+            rows = (await sess.execute(stmt)).scalars().all()
+        records: list[FactoryTicketRecord] = []
+        for row in rows:
+            try:
+                records.append(_to_record(row, FactoryTicketRecord))
+            except (ValueError, TypeError) as exc:
+                # pydantic's ValidationError (a ValueError) on a
+                # payload that is valid JSON but not a valid record,
+                # or a TypeError from ``dict()`` on a payload that is
+                # not even an object.
+                _logger.warning(
+                    "Skipping unreadable factory ticket row %r: %s",
                     row.id,
                     exc,
                 )

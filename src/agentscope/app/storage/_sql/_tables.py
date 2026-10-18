@@ -317,6 +317,37 @@ class DiscussionRow(_JsonRecordMixin):
     _index_paths: ClassVar[dict[str, str]] = {"status": "data.status"}
 
 
+class FactoryTicketRow(_JsonRecordMixin):
+    """One row per :class:`~agentscope.app.storage.FactoryTicketRecord`.
+
+    ``status`` lives inside ``data`` on the record, so it is fed
+    through an ``_index_paths`` copy (mirroring
+    :class:`DiscussionRow`) rather than ``_indexed_fields`` — that
+    mechanism only reaches top-level record fields. The column lets
+    status-filtered listing and the boot sweep's active query skip
+    rows they cannot match.
+    """
+
+    __tablename__ = "factory_tickets"
+
+    user_id: Mapped[str] = mapped_column(
+        String(_ID_LEN),
+        nullable=False,
+        index=True,
+    )
+    status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        index=True,
+    )
+
+    _indexed_fields = ("user_id",)
+
+    # A copy from inside ``data``: where the ticket stands, for
+    # status-filtered listing and the stale sweep.
+    _index_paths: ClassVar[dict[str, str]] = {"status": "data.status"}
+
+
 class ScheduleRow(_JsonRecordMixin):
     """One row per :class:`~agentscope.app.storage.ScheduleRecord`."""
 

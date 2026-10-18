@@ -19,6 +19,15 @@ from ._discussion import (
     RoundArgument,
     RoundEvaluation,
 )
+from ._factory import (
+    FactoryDecision,
+    FactoryMode,
+    FactoryPhase,
+    FactoryStatus,
+    FactoryTask,
+    FactoryTicketData,
+    FactoryTicketRecord,
+)
 from ._knowledge_base import (
     ChunkerConfig,
     KnowledgeBaseData,
@@ -161,4 +170,12 @@ __all__ = [
     "DiscussionData",
     "DiscussionStatus",
     "DiscussionRecord",
+    # The factory models
+    "FactoryMode",
+    "FactoryPhase",
+    "FactoryStatus",
+    "FactoryTask",
+    "FactoryDecision",
+    "FactoryTicketData",
+    "FactoryTicketRecord",
 ]

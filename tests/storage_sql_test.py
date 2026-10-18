@@ -38,6 +38,9 @@ from agentscope.app.storage import (
     DiscussionRecord,
     DiscussionStatus,
     EmbeddingModelConfig,
+    FactoryStatus,
+    FactoryTicketData,
+    FactoryTicketRecord,
     JudgeConfig,
     KnowledgeBaseData,
     KnowledgeBaseRecord,
@@ -211,6 +214,24 @@ def _discussion_record(user_id: str) -> DiscussionRecord:
                 ),
             ),
             status=DiscussionStatus.RUNNING,
+        ),
+    )
+
+
+def _factory_record(user_id: str) -> FactoryTicketRecord:
+    """Build a minimal but complete factory ticket record."""
+    return FactoryTicketRecord(
+        user_id=user_id,
+        data=FactoryTicketData(
+            title="ship the login page",
+            description="Users cannot sign in.",
+            chat_model_config=ChatModelConfig(
+                type="openai",
+                credential_id="cred-1",
+                model="gpt-4o",
+                parameters={},
+            ),
+            status=FactoryStatus.RUNNING,
         ),
     )
 
@@ -1921,6 +1942,46 @@ class AsyncSQLAlchemyStorageAutoMigrateTest(IsolatedAsyncioTestCase):
                             status=DiscussionStatus.RUNNING,
                         ),
                     ),
+                    1,
+                )
+
+    async def test_migrations_alone_create_the_factory_tickets_table(
+        self,
+    ) -> None:
+        """Same isolation for 0008 — without ``metadata.create_all`` a
+        missing migration surfaces here rather than in production."""
+        import os
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            url = f"sqlite+aiosqlite:///{os.path.join(tmp, 'as.db')}"
+
+            async with AsyncSQLAlchemyStorage(
+                url,
+                auto_migrate=True,
+                create_tables=False,
+            ) as storage:
+                saved = await storage.upsert_factory_ticket(
+                    "user-1",
+                    _factory_record("user-1"),
+                )
+                fetched = await storage.get_factory_ticket(
+                    "user-1",
+                    saved.id,
+                )
+                self.assertIsNotNone(fetched)
+                self.assertEqual(fetched.data.title, "ship the login page")
+                self.assertEqual(
+                    len(
+                        await storage.list_factory_tickets(
+                            "user-1",
+                            status=FactoryStatus.RUNNING,
+                        ),
+                    ),
+                    1,
+                )
+                self.assertEqual(
+                    len(await storage.list_active_factory_tickets()),
                     1,
                 )
 

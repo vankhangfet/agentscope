@@ -17,6 +17,8 @@ from ._model import (
     CredentialRecord,
     DiscussionRecord,
     DiscussionStatus,
+    FactoryStatus,
+    FactoryTicketRecord,
     KnowledgeBaseRecord,
     KnowledgeDocumentRecord,
     KnowledgeDocumentStatus,
@@ -74,6 +76,19 @@ _ACTIVE_RUN_STATUSES = (RunStatus.RUNNING, RunStatus.WAITING_HUMAN)
 _ACTIVE_DISCUSSION_STATUSES = (
     DiscussionStatus.PENDING,
     DiscussionStatus.RUNNING,
+)
+
+# Statuses that keep a factory ticket in the global active index. The
+# boot sweep resumes crashed PENDING/RUNNING executions and re-surfaces
+# parked WAITING_HUMAN tickets — the human may never return, so a
+# restart must be able to sweep them back to a state the UI can act
+# on. Shared by ``upsert_factory_ticket`` (index maintenance) and
+# ``list_active_factory_tickets`` (self-healing) so the two cannot
+# drift.
+_ACTIVE_FACTORY_STATUSES = (
+    FactoryStatus.PENDING,
+    FactoryStatus.RUNNING,
+    FactoryStatus.WAITING_HUMAN,
 )
 
 _logger = logging.getLogger(__name__)
@@ -174,6 +189,16 @@ class RedisStorage(StorageBase):
         discussion_active_index: str = (
             "agentscope:discussions:active"
         )
+
+        factory_ticket: str = (
+            "agentscope:user:{user_id}:factory_ticket:{ticket_id}"
+        )
+        factory_ticket_index: str = (
+            "agentscope:user:{user_id}:factory_tickets"
+        )
+        # Global set of ``user_id:ticket_id`` entries for every
+        # non-terminal ticket; read by the startup stale sweep.
+        factory_ticket_active_index: str = "agentscope:factory:active"
 
         team: str = "agentscope:user:{user_id}:team:{team_id}"
         team_index: str = "agentscope:user:{user_id}:teams"
@@ -2337,6 +2362,195 @@ class RedisStorage(StorageBase):
                 stale.append(entry)
                 continue
             if record.data.status in _ACTIVE_DISCUSSION_STATUSES:
+                records.append(record)
+            else:
+                stale.append(entry)
+        if stale:
+            await self._client.srem(active_key, *stale)
+        return records
+
+    # ------------------------------------------------------------------
+    # Factory ticket persistence
+    # ------------------------------------------------------------------
+
+    async def upsert_factory_ticket(
+        self,
+        user_id: str,
+        record: FactoryTicketRecord,
+    ) -> FactoryTicketRecord:
+        """Persist a factory ticket and index it under the user.
+
+        Also maintains the global active index: the ticket's
+        ``user_id:ticket_id`` entry is added while it is PENDING,
+        RUNNING or WAITING_HUMAN (a parked ticket still needs the
+        sweep — the human may never return) and removed in any other
+        state, so the startup sweep only ever sees tickets a crashed
+        process left needing attention.
+        """
+        record.updated_at = datetime.now()
+        key = self._key(
+            self.key_config.factory_ticket,
+            user_id=user_id,
+            ticket_id=record.id,
+        )
+        # This write runs on every engine transition, so the record
+        # SET (plus its optional sliding EXPIRE) and both index updates
+        # go out as one non-transactional pipeline instead of
+        # sequential round trips.
+        async with self._client.pipeline(transaction=False) as pipe:
+            pipe.set(key, record.model_dump_json())
+            if self.key_ttl is not None:
+                pipe.expire(key, self.key_ttl)
+            pipe.sadd(
+                self._key(
+                    self.key_config.factory_ticket_index,
+                    user_id=user_id,
+                ),
+                record.id,
+            )
+            entry = f"{user_id}:{record.id}"
+            if record.data.status in _ACTIVE_FACTORY_STATUSES:
+                pipe.sadd(
+                    self.key_config.factory_ticket_active_index,
+                    entry,
+                )
+            else:
+                pipe.srem(
+                    self.key_config.factory_ticket_active_index,
+                    entry,
+                )
+            await pipe.execute()
+        return record
+
+    async def get_factory_ticket(
+        self,
+        user_id: str,
+        ticket_id: str,
+    ) -> FactoryTicketRecord | None:
+        """Fetch one factory ticket by id."""
+        raw = await self._client.get(
+            self._key(
+                self.key_config.factory_ticket,
+                user_id=user_id,
+                ticket_id=ticket_id,
+            ),
+        )
+        return (
+            FactoryTicketRecord.model_validate_json(raw) if raw else None
+        )
+
+    async def list_factory_tickets(
+        self,
+        user_id: str,
+        status: FactoryStatus | None = None,
+    ) -> list[FactoryTicketRecord]:
+        """Return the user's tickets, newest first; ``status`` keeps
+        only tickets in that state (Redis has no status index, so the
+        filter runs after the fetch)."""
+        keys = [
+            self._key(
+                self.key_config.factory_ticket,
+                user_id=user_id,
+                ticket_id=ticket_id,
+            )
+            for ticket_id in await self._client.smembers(
+                self._key(
+                    self.key_config.factory_ticket_index,
+                    user_id=user_id,
+                ),
+            )
+        ]
+        # One MGET for the whole index instead of a GET per ticket
+        # (an empty batch is skipped: MGET with no keys is a protocol
+        # error).
+        values = await self._client.mget(keys) if keys else []
+        records = []
+        for raw in values:
+            if raw is None:
+                # Key expired or was deleted out from under the index.
+                continue
+            record = FactoryTicketRecord.model_validate_json(raw)
+            if status is None or record.data.status == status:
+                records.append(record)
+        return sorted(
+            records,
+            key=lambda record: record.created_at,
+            reverse=True,
+        )
+
+    async def delete_factory_ticket(
+        self,
+        user_id: str,
+        ticket_id: str,
+    ) -> bool:
+        """Delete one factory ticket and both of its index entries."""
+        await self._client.srem(
+            self._key(
+                self.key_config.factory_ticket_index,
+                user_id=user_id,
+            ),
+            ticket_id,
+        )
+        await self._client.srem(
+            self.key_config.factory_ticket_active_index,
+            f"{user_id}:{ticket_id}",
+        )
+        deleted = await self._client.delete(
+            self._key(
+                self.key_config.factory_ticket,
+                user_id=user_id,
+                ticket_id=ticket_id,
+            ),
+        )
+        return bool(deleted)
+
+    async def list_active_factory_tickets(self) -> list[FactoryTicketRecord]:
+        """Every non-terminal factory ticket across all users, per the
+        active index.
+
+        Self-healing, mirroring :meth:`list_active_discussions`:
+        entries whose record key has expired, been deleted externally,
+        whose stored JSON no longer parses (the sweep must survive a
+        corrupt row), or whose ticket has since reached a terminal
+        state (the terminal upsert's ``srem`` was lost) are pruned from
+        the index rather than returned. Record reads are batched
+        through one MGET — the sweep runs on every startup.
+        """
+        active_key = self.key_config.factory_ticket_active_index
+        # ``resolved`` holds (entry, user_id, ticket_id) triples; the
+        # key list below keeps its order so the MGET results zip up.
+        # Split from the right: ids come from a user-overridable
+        # factory, so only the colon this module wrote between user_id
+        # and ticket_id can be assumed safe.
+        resolved: list[tuple[str, str, str]] = []
+        stale: list[str] = []
+        for entry in await self._client.smembers(active_key):
+            try:
+                user_id, ticket_id = entry.rsplit(":", 1)
+            except ValueError:
+                stale.append(entry)
+                continue
+            resolved.append((entry, user_id, ticket_id))
+        keys = [
+            self._key(
+                self.key_config.factory_ticket,
+                user_id=user_id,
+                ticket_id=ticket_id,
+            )
+            for _entry, user_id, ticket_id in resolved
+        ]
+        values = await self._client.mget(keys) if keys else []
+        records: list[FactoryTicketRecord] = []
+        for (entry, _user_id, _ticket_id), raw in zip(resolved, values):
+            if raw is None:
+                stale.append(entry)
+                continue
+            try:
+                record = FactoryTicketRecord.model_validate_json(raw)
+            except ValueError:
+                stale.append(entry)
+                continue
+            if record.data.status in _ACTIVE_FACTORY_STATUSES:
                 records.append(record)
             else:
                 stale.append(entry)
