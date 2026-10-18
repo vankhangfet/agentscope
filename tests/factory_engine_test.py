@@ -19,14 +19,17 @@ no session bookkeeping.
 import asyncio
 import json
 import time
+from datetime import datetime
 from unittest import IsolatedAsyncioTestCase
 
 from fastapi import HTTPException
 
 from agentscope.app._service.discussion import DebateEngine
 from agentscope.app._service.factory import FactoryEngine
+from agentscope.app._service.factory import _engine as factory_module
 from agentscope.app.storage import (
     DiscussionStatus,
+    FactoryDecision,
     FactoryMode,
     FactoryPhase,
     FactoryStatus,
@@ -39,6 +42,7 @@ from discussion_engine_test import (
     USER,
     _FakeRunner,
     _model,
+    _record,
     make_storage,
 )
 
@@ -565,3 +569,235 @@ class FactoryEngineTest(IsolatedAsyncioTestCase):
         with self.assertRaises(HTTPException) as caught:
             await engine.cancel(USER, "nope")
         self.assertEqual(caught.exception.status_code, 404)
+
+    # ------------------------------------------------------------------
+    # Gate identity (I1): an answer applies to the gate it read, only
+    # ------------------------------------------------------------------
+
+    async def test_duplicate_approve_second_gets_409(self) -> None:
+        storage, _runner, _debate, engine = await self._make()
+        ticket = await self._ticket(storage)
+        await engine._run_to_completion(USER, ticket.id)
+
+        first = await engine.approve(USER, ticket.id, "ok")
+
+        with self.assertRaises(HTTPException) as caught:
+            await engine.approve(USER, ticket.id, "again")
+        self.assertEqual(caught.exception.status_code, 409)
+        # The rejected duplicate changed nothing: the record is as the
+        # winning answer left it.
+        after = await storage.get_factory_ticket(USER, ticket.id)
+        assert after is not None
+        self.assertIs(after.data.status, first.data.status)
+        self.assertIs(after.data.phase, first.data.phase)
+        self.assertEqual(
+            len(after.data.decisions),
+            len(first.data.decisions),
+        )
+
+    async def test_stale_gate_token_never_applies(self) -> None:
+        """The approve transition applies only to the exact gate its
+        pre-check read — a record that re-parked elsewhere in between
+        (another answer won the gate, the walker moved on) is left
+        untouched."""
+        storage, _runner, _debate, _engine = await self._make()
+        ticket = await self._ticket(storage)
+        await _engine._run_to_completion(USER, ticket.id)
+        parked = await storage.get_factory_ticket(USER, ticket.id)
+        assert parked is not None
+        gate = factory_module._gate_token(parked)
+
+        # A stale token (the walker already re-parked at the next
+        # gate): the transition no-ops and reports that it never
+        # applied.
+        answered: list[bool] = []
+        stale = parked.model_copy(deep=True)
+        factory_module._apply_approve(
+            "late",
+            (FactoryPhase.ARCHITECTURE, len(parked.data.decisions) + 1),
+            answered,
+        )(stale)
+        self.assertEqual(answered, [])
+        self.assertIs(stale.data.status, FactoryStatus.WAITING_HUMAN)
+        self.assertIs(stale.data.phase, FactoryPhase.REQUIREMENTS)
+        self.assertEqual(stale.data.decisions[-1].note, "")
+
+        # The fresh token applies and records the note.
+        factory_module._apply_approve("on time", gate, answered)(stale)
+        self.assertEqual(answered, [True])
+        self.assertIs(stale.data.phase, FactoryPhase.ARCHITECTURE)
+        self.assertEqual(stale.data.decisions[-1].note, "on time")
+
+    async def test_answer_with_stale_precheck_409s(self) -> None:
+        """End to end: when the record moves between an answer's
+        pre-check and its transition, the answer gets a 409 and the
+        new gate is untouched."""
+        storage, runner, debate, engine = await self._make()
+        ticket = await self._ticket(storage)
+        await engine._run_to_completion(USER, ticket.id)
+
+        class _StalePrecheckEngine(FactoryEngine):
+            """Answers with a gate token read from a record the engine
+            no longer holds — simulates the walker re-parking between
+            an answer's pre-check and its transition."""
+
+            async def _require_waiting(
+                self,
+                user_id: str,
+                ticket_id: str,
+            ) -> FactoryTicketRecord:
+                record = await super()._require_waiting(
+                    user_id,
+                    ticket_id,
+                )
+                stale = record.model_copy(deep=True)
+                stale.data.decisions.append(
+                    FactoryDecision(
+                        phase=record.data.phase,
+                        discussion_id=None,
+                        conclusion="a decision the record never took",
+                        consensus=False,
+                        created_at=datetime.now(),
+                    ),
+                )
+                return stale
+
+        engine = _StalePrecheckEngine(
+            storage,
+            _StubWorkspaceManager(),
+            runner,
+            debate,
+        )
+        with self.assertRaises(HTTPException) as caught:
+            await engine.approve(USER, ticket.id, "late")
+        self.assertEqual(caught.exception.status_code, 409)
+        after = await storage.get_factory_ticket(USER, ticket.id)
+        assert after is not None
+        self.assertIs(after.data.status, FactoryStatus.WAITING_HUMAN)
+        self.assertIs(after.data.phase, FactoryPhase.REQUIREMENTS)
+        self.assertTrue(
+            all(
+                decision.note == ""
+                for decision in after.data.decisions
+            ),
+        )
+
+    # ------------------------------------------------------------------
+    # The plan cap (I2)
+    # ------------------------------------------------------------------
+
+    async def test_plan_over_cap_truncates_and_logs(self) -> None:
+        storage, runner, _debate, engine = await self._make()
+        ticket = await self._ticket(storage)
+        await engine._run_to_completion(USER, ticket.id)
+        await engine.approve(USER, ticket.id)
+        await self._until_settled(storage, ticket.id)
+        await engine.approve(USER, ticket.id)
+        runner.plan_replies = [
+            json.dumps(
+                {
+                    "tasks": [
+                        {
+                            "title": f"task {index}",
+                            "description": "work",
+                        }
+                        for index in range(1, 21)
+                    ],
+                },
+            ),
+        ]
+
+        parked = await self._until_settled(storage, ticket.id)
+
+        self.assertIs(parked.data.phase, FactoryPhase.DEVELOP)
+        self.assertEqual(len(parked.data.tasks), 12)
+        self.assertEqual(
+            [task.title for task in parked.data.tasks],
+            [f"task {index}" for index in range(1, 13)],
+        )
+        # Twelve developer turns ran — the cap, not the plan's twenty.
+        developer_turns = [
+            call
+            for call in runner.calls
+            if (call[3].get_text_content() or "").startswith(_TASK_ASK)
+        ]
+        self.assertEqual(len(developer_turns), 12)
+        # The truncation is logged honestly.
+        truncations = [
+            decision
+            for decision in parked.data.decisions
+            if "truncated" in decision.conclusion
+        ]
+        self.assertEqual(len(truncations), 1)
+        self.assertEqual(
+            truncations[0].conclusion,
+            "plan truncated from 20 to 12 tasks (cap 12)",
+        )
+
+    # ------------------------------------------------------------------
+    # Settling an unsettled discussion (N5)
+    # ------------------------------------------------------------------
+
+    async def test_unsettled_discussion_fails_after_settle_wait(
+        self,
+    ) -> None:
+        """A discussion nothing will ever settle (what a close()-torn
+        debate loop leaves behind) fails its phase once the settle
+        wait expires."""
+        storage, _runner, debate, engine = await self._make()
+        ticket = await self._ticket(storage)
+        orphan = await storage.upsert_discussion(
+            USER,
+            _record(status=DiscussionStatus.RUNNING),
+        )
+
+        async def _stuck(
+            user_id: str,
+            discussion_id: str,
+        ):
+            return orphan
+
+        debate.run_to_completion = _stuck
+        original_wait = factory_module._SETTLE_WAIT
+        factory_module._SETTLE_WAIT = 0.05
+        try:
+            await engine._run_to_completion(USER, ticket.id)
+        finally:
+            factory_module._SETTLE_WAIT = original_wait
+
+        done = await storage.get_factory_ticket(USER, ticket.id)
+        assert done is not None
+        self.assertIs(done.data.status, FactoryStatus.FAILED)
+        self.assertEqual(
+            done.data.error,
+            "requirements discussion did not complete",
+        )
+
+    async def test_hand_cancelled_discussion_cancels_ticket(self) -> None:
+        """A discussion cancelled by hand (the discussions API, not the
+        factory) takes the ticket down with it from the phase
+        branch."""
+        storage, _runner, debate, engine = await self._make()
+        ticket = await self._ticket(storage)
+        await engine._run_to_completion(USER, ticket.id)
+        await engine.approve(USER, ticket.id)
+
+        # Wait until the architecture discussion is on the ticket,
+        # then cancel it straight through the debate engine.
+        deadline = time.monotonic() + 5
+        discussion_id = None
+        while time.monotonic() < deadline:
+            record = await storage.get_factory_ticket(USER, ticket.id)
+            assert record is not None
+            discussion_id = record.data.discussions.get(
+                FactoryPhase.ARCHITECTURE,
+            )
+            if discussion_id is not None:
+                break
+            await asyncio.sleep(0.01)
+        assert discussion_id is not None
+        await debate.cancel(USER, discussion_id)
+
+        done = await self._until_settled(storage, ticket.id)
+        self.assertIs(done.data.status, FactoryStatus.CANCELLED)
+        self.assertIsNotNone(done.data.finished_at)

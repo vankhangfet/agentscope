@@ -109,6 +109,12 @@ _NO_CONCLUSION = "(no conclusion)"
 _DEVELOPER_ROLE = "developer"
 """The logical role every task is routed to (v1: one developer)."""
 
+_MAX_TASKS = 12
+"""Ceiling on the Plan Lead's task list. The prompt asks for a short
+list; this is the enforcement backstop — one unattended phase runs at
+most this many sequential DONT_ASK developer sessions before the next
+human gate, and the review prompt stays bounded with it."""
+
 _PLAN_RETRY_NUDGE = (
     "\n\nYour previous reply was not the required JSON. Reply again "
     "with the JSON object only."
@@ -492,10 +498,17 @@ class FactoryEngine:
                 tasks = _parse_tasks(reply)
             if tasks is None:
                 tasks = [_fallback_task(reply)]
+            parsed_count = len(tasks)
+            if parsed_count > _MAX_TASKS:
+                # The plan is capped, not trusted: an unbounded list
+                # would run that many unattended sessions before any
+                # human sees anything. The truncation is logged as a
+                # decision by the transition below.
+                tasks = tasks[:_MAX_TASKS]
             landed = await self._mutate(
                 user_id,
                 ticket_id,
-                _set_tasks(tasks),
+                _set_tasks(tasks, parsed_count),
             )
             if landed is None or landed.data.status in _TERMINAL:
                 return
@@ -669,7 +682,10 @@ class FactoryEngine:
                 self._storage,
                 user_id,
                 session_id,
-                who,
+                # ``who`` stays nameless: the PhaseFailure below
+                # already names the role, and the detail must not
+                # repeat it (the debate engine's discipline).
+                "the role",
             )
         except asyncio.CancelledError:
             raise
@@ -716,7 +732,10 @@ class FactoryEngine:
         REQUIREMENTS and ARCHITECTURE gates advance the ticket to the
         next phase and re-dispatch its walker; the DEVELOP gate
         completes the ticket. The note lands on the last decision —
-        the one the gate is about.
+        the one the gate is about. The answer applies only to the
+        exact gate its pre-check read (a gate token); a record that
+        moved on in between — another answer won the gate, or the
+        walker re-parked at the next one — is left untouched.
 
         Args:
             user_id (`str`): The ticket's owner.
@@ -730,15 +749,17 @@ class FactoryEngine:
         Raises:
             `HTTPException`: 404 when the ticket is missing; 409 when
                 it is not WAITING_HUMAN (only a gate is answerable —
-                failed tickets restart as a new ticket in v1).
+                failed tickets restart as a new ticket in v1) or when
+                the gate was answered before this answer applied.
         """
-        await self._require_waiting(user_id, ticket_id)
+        gate = _gate_token(await self._require_waiting(user_id, ticket_id))
+        answered: list[bool] = []
         persisted = await self._mutate(
             user_id,
             ticket_id,
-            _apply_approve(note),
+            _apply_approve(note, gate, answered),
         )
-        persisted = self._require_mutated(user_id, ticket_id, persisted)
+        self._assert_answered(user_id, ticket_id, persisted, answered)
         if persisted.data.status is not FactoryStatus.COMPLETED:
             await self.dispatch(user_id, ticket_id)
         return persisted
@@ -755,7 +776,9 @@ class FactoryEngine:
         replaces the phase's recorded one (its artifact is cleared; a
         rejected DEVELOP loses its tasks and review, keeping the
         workspace), the rejection is logged with its note, and the
-        walker is re-dispatched. Earlier phases are untouched.
+        walker is re-dispatched. Earlier phases are untouched. Like
+        approve, the answer applies only to the exact gate its
+        pre-check read.
 
         Args:
             user_id (`str`): The ticket's owner.
@@ -768,15 +791,17 @@ class FactoryEngine:
 
         Raises:
             `HTTPException`: 404 when the ticket is missing; 409 when
-                it is not WAITING_HUMAN.
+                it is not WAITING_HUMAN or the gate was already
+                answered.
         """
-        await self._require_waiting(user_id, ticket_id)
+        gate = _gate_token(await self._require_waiting(user_id, ticket_id))
+        answered: list[bool] = []
         persisted = await self._mutate(
             user_id,
             ticket_id,
-            _apply_reject(note),
+            _apply_reject(note, gate, answered),
         )
-        persisted = self._require_mutated(user_id, ticket_id, persisted)
+        self._assert_answered(user_id, ticket_id, persisted, answered)
         await self.dispatch(user_id, ticket_id)
         return persisted
 
@@ -784,9 +809,10 @@ class FactoryEngine:
         self,
         user_id: str,
         ticket_id: str,
-    ) -> None:
+    ) -> FactoryTicketRecord:
         """The gate-answer pre-check: the ticket must exist and be
-        parked WAITING_HUMAN."""
+        parked WAITING_HUMAN. Returns the record as read — the caller
+        derives the gate token to verify inside its transition."""
         record = await self._storage.get_factory_ticket(
             user_id,
             ticket_id,
@@ -804,24 +830,27 @@ class FactoryEngine:
                     f"gate (status {record.data.status.value!r})."
                 ),
             )
+        return record
 
-    def _require_mutated(
+    def _assert_answered(
         self,
         user_id: str,
         ticket_id: str,
         persisted: FactoryTicketRecord | None,
-    ) -> FactoryTicketRecord:
-        """Classify a gate answer's outcome: the persisted record, a
-        404 when the ticket vanished, a 409 when a concurrent answer
-        won the gate before this one's mutation applied."""
+        answered: list[bool],
+    ) -> None:
+        """Classify a gate answer's outcome from whether its
+        transition applied: silent when it did, a 404 when the ticket
+        vanished under it, a 409 when it did not — the record moved
+        between the pre-check and the transition, so another answer
+        won the gate (or the walker re-parked elsewhere) and this
+        answer must not double-apply."""
         if persisted is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Factory ticket {ticket_id!r} not found.",
             )
-        if persisted.data.status is FactoryStatus.WAITING_HUMAN:
-            # The transition's own guard found the gate already
-            # answered — another caller got there first.
+        if not answered:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=(
@@ -829,7 +858,6 @@ class FactoryEngine:
                     "answered."
                 ),
             )
-        return persisted
 
     # ------------------------------------------------------------------
     # Cancel, close, recovery
@@ -1127,18 +1155,42 @@ def _park(record: FactoryTicketRecord) -> None:
     record.data.status = FactoryStatus.WAITING_HUMAN
 
 
-def _apply_approve(note: str) -> Callable[[FactoryTicketRecord], None]:
+def _gate_token(record: FactoryTicketRecord) -> tuple[FactoryPhase, int]:
+    """The identity of the gate a WAITING_HUMAN record is parked at:
+    its phase plus how many decisions have landed.
+
+    Every way a gate resolves or a phase re-runs grows the decision
+    list or moves the phase, so two different parks never share a
+    token — which is what lets an answer's transition verify it is
+    applying to the very gate its pre-check read, not to whichever
+    park happens to hold WAITING_HUMAN by the time the write lock is
+    taken.
+    """
+    return (record.data.phase, len(record.data.decisions))
+
+
+def _apply_approve(
+    note: str,
+    gate: tuple[FactoryPhase, int],
+    answered: list[bool],
+) -> Callable[[FactoryTicketRecord], None]:
     """Transition helper factory: a gate's approval.
 
-    Fires only from WAITING_HUMAN: the two intermediate gates advance
-    the phase and hand the record back to the walker (the caller
-    re-dispatches), the final gate completes the ticket. The note
-    lands on the last decision — the one this gate is about.
+    Fires only when the record still parks at *gate* (WAITING_HUMAN
+    and the same token the answer's pre-check read): the two
+    intermediate gates advance the phase and hand the record back to
+    the walker (the caller re-dispatches), the final gate completes
+    the ticket. The note lands on the last decision — the one this
+    gate is about. A no-op records nothing in *answered*, which is how
+    the caller learns it lost the gate.
     """
 
     def apply(record: FactoryTicketRecord) -> None:
         if record.data.status is not FactoryStatus.WAITING_HUMAN:
             return
+        if _gate_token(record) != gate:
+            return
+        answered.append(True)
         phase = record.data.phase
         if phase in _NEXT_PHASE:
             record.data.phase = _NEXT_PHASE[phase]
@@ -1152,19 +1204,28 @@ def _apply_approve(note: str) -> Callable[[FactoryTicketRecord], None]:
     return apply
 
 
-def _apply_reject(note: str) -> Callable[[FactoryTicketRecord], None]:
+def _apply_reject(
+    note: str,
+    gate: tuple[FactoryPhase, int],
+    answered: list[bool],
+) -> Callable[[FactoryTicketRecord], None]:
     """Transition helper factory: a gate's rejection.
 
-    Fires only from WAITING_HUMAN: the rejection is logged with its
-    note, the phase's own output is cleared (its discussion is
-    replaced when the re-run records its own id; a rejected DEVELOP
-    loses its tasks and review but keeps the workspace), and the
-    record goes back to the walker.
+    Fires only when the record still parks at *gate* (WAITING_HUMAN
+    and the same token the answer's pre-check read): the rejection is
+    logged with its note, the phase's own output is cleared (its
+    discussion is replaced when the re-run records its own id; a
+    rejected DEVELOP loses its tasks and review but keeps the
+    workspace), and the record goes back to the walker. A no-op
+    records nothing in *answered*.
     """
 
     def apply(record: FactoryTicketRecord) -> None:
         if record.data.status is not FactoryStatus.WAITING_HUMAN:
             return
+        if _gate_token(record) != gate:
+            return
+        answered.append(True)
         phase = record.data.phase
         record.data.decisions.append(
             FactoryDecision(
@@ -1199,14 +1260,35 @@ def _mint_workspace(record: FactoryTicketRecord) -> None:
 
 def _set_tasks(
     tasks: list[FactoryTask],
+    parsed_count: int | None = None,
 ) -> Callable[[FactoryTicketRecord], None]:
     """Transition helper factory: the Plan Lead's breakdown lands as
-    the ticket's task list, all PENDING."""
+    the ticket's task list, all PENDING.
+
+    *parsed_count* is how many tasks the plan actually held before the
+    cap truncated it; when fewer tasks land than were parsed, the
+    truncation is logged as a DEVELOP decision rather than passed
+    over silently.
+    """
+    count = parsed_count if parsed_count is not None else len(tasks)
 
     def set_tasks(record: FactoryTicketRecord) -> None:
         if not _walker_owns(record):
             return
         record.data.tasks = [task.model_copy() for task in tasks]
+        if len(tasks) < count:
+            record.data.decisions.append(
+                FactoryDecision(
+                    phase=FactoryPhase.DEVELOP,
+                    discussion_id=None,
+                    conclusion=(
+                        f"plan truncated from {count} to {len(tasks)} "
+                        f"tasks (cap {_MAX_TASKS})"
+                    ),
+                    consensus=True,
+                    created_at=datetime.now(),
+                ),
+            )
 
     return set_tasks
 
@@ -1310,7 +1392,8 @@ def _plan_prompt(data: FactoryTicketData) -> str:
         "",
         "Break the work down now. Reply with ONE strict JSON object "
         'and nothing else, of the shape {"tasks": [{"title": "...", '
-        '"description": "..."}]}.',
+        '"description": "..."}]}. Keep the list to at most '
+        f"{_MAX_TASKS} tasks.",
     ]
     return "\n".join(lines)
 
