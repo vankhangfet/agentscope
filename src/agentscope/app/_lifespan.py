@@ -18,6 +18,7 @@ from ._service import (
     CredentialBindingService,
     ChatService,
     DebateEngine,
+    FactoryEngine,
     IndexSweeper,
     IndexTaskConsumer,
     IndexWorker,
@@ -264,6 +265,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.discussion_engine = discussion_engine
         await discussion_engine.recover_stale()
 
+        # The factory engine drives tickets the router creates, on the
+        # live debate engine its phases await: built after it (its
+        # walkers create and await discussions through it) with the
+        # same discipline — the stale sweep runs before the app serves
+        # traffic, after the debate sweep above so a swept-out
+        # discussion is already terminal when the ticket walker's own
+        # record is classified.
+        factory_engine = FactoryEngine(
+            storage=storage,
+            workspace_manager=workspace_manager,
+            chat_runner=chat_service.run,
+            debate_engine=discussion_engine,
+        )
+        app.state.factory_engine = factory_engine
+        await factory_engine.recover_stale()
+
         # Scheduled workflow runs. The scheduler was constructed far
         # above — ChatService takes it, and the engine takes
         # ChatService — so the starter is attached here rather than
@@ -395,16 +412,23 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
         yield
 
-        # The engines are not stack-acquired (both are built on
+        # The engines are not stack-acquired (all are built on
         # ChatService, their chat runner, so they are wired after the
         # stack's early members), so their loops are stopped
         # explicitly here — while storage and the message bus are
-        # still open, before the stack unwinds underneath them. Runs
-        # and debates are left wherever they are; the next process's
-        # recovery sweep classifies them.
+        # still open, before the stack unwinds underneath them. Runs,
+        # debates and tickets are left wherever they are; the next
+        # process's recovery sweep classifies them.
         engine = getattr(app.state, "workflow_engine", None)
         if engine is not None:
             await engine.close()
+        # The factory closes before the debate engine: its walkers
+        # await debate tasks, so cancelling them first cascades into
+        # their discussions, and the debate close then drains the
+        # rest.
+        factory_engine = getattr(app.state, "factory_engine", None)
+        if factory_engine is not None:
+            await factory_engine.close()
         discussion_engine = getattr(app.state, "discussion_engine", None)
         if discussion_engine is not None:
             await discussion_engine.close()

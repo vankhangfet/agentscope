@@ -20,6 +20,7 @@ from ._router import (
     chat_router,
     credential_router,
     discussion_router,
+    factory_router,
     health_router,
     hub_router,
     knowledge_base_router,
@@ -454,6 +455,7 @@ def create_app(
         channel_router,
         workflow_router,
         discussion_router,
+        factory_router,
     ):
         app.include_router(router)
 

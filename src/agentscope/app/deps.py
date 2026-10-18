@@ -17,6 +17,7 @@ from ._service import (
     CredentialBindingService,
     ChatService,
     DebateEngine,
+    FactoryEngine,
     SOPService,
     KnowledgeBaseService,
     RealtimeService,
@@ -228,6 +229,18 @@ async def get_discussion_engine(request: Request) -> DebateEngine:
         `DebateEngine`: The engine stored in ``app.state``.
     """
     return request.app.state.discussion_engine
+
+
+async def get_factory_engine(request: Request) -> FactoryEngine:
+    """Return the application-wide factory engine.
+
+    Args:
+        request (`Request`): The incoming FastAPI request.
+
+    Returns:
+        `FactoryEngine`: The engine stored in ``app.state``.
+    """
+    return request.app.state.factory_engine
 
 
 async def get_workspace_manager(request: Request) -> WorkspaceManagerBase:

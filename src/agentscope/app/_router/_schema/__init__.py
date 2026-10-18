@@ -139,6 +139,15 @@ from ._discussion import (
     DiscussionDetailResponse,
     ListDiscussionsResponse,
 )
+from ._factory import (
+    ApproveTicketRequest,
+    CreateFactoryTicketRequest,
+    CreateFactoryTicketResponse,
+    FactoryTicketDetailResponse,
+    FactoryTicketView,
+    ListFactoryTicketsResponse,
+    RejectTicketRequest,
+)
 
 __all__ = [
     # Health
@@ -272,4 +281,12 @@ __all__ = [
     "CreateDiscussionResponse",
     "DiscussionDetailResponse",
     "ListDiscussionsResponse",
+    # Factory
+    "ApproveTicketRequest",
+    "CreateFactoryTicketRequest",
+    "CreateFactoryTicketResponse",
+    "FactoryTicketDetailResponse",
+    "FactoryTicketView",
+    "ListFactoryTicketsResponse",
+    "RejectTicketRequest",
 ]
