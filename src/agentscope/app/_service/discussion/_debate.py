@@ -170,7 +170,7 @@ class DebateEngine:
         user_id: str,
         discussion_id: str,
     ) -> DiscussionRecord:
-        """Drive one discussion to its terminal record and return it.
+        """Drive one discussion to its settled record and return it.
 
         For orchestrators and tests that need a discussion finished
         inline rather than dispatched — the factory's phases await
@@ -179,13 +179,20 @@ class DebateEngine:
         raced with a second completion body); otherwise the
         deterministic core runs directly in this coroutine.
 
+        Must NOT be called from the discussion's own loop task (that
+        would await itself); callers are sibling tasks such as the
+        factory's phase loop.
+
         Args:
             user_id (`str`): The discussion's owner.
             discussion_id (`str`): The discussion to finish.
 
         Returns:
-            `DiscussionRecord`: The final record, whatever terminal
-                state the debate reached — conclusion or error on it.
+            `DiscussionRecord`: The record as it settled — terminal
+                after a normal run or a ``cancel`` (which persists
+                CANCELLED before returning); still RUNNING only when
+                ``close`` tore the loop down mid-run, in which case
+                the next boot's sweep classifies it.
 
         Raises:
             `HTTPException`: 404 when the discussion is missing.
@@ -201,9 +208,16 @@ class DebateEngine:
             try:
                 await live
             except asyncio.CancelledError:
-                # The loop was cancelled (a cancel, a close); the
-                # record, reloaded below, carries the outcome.
-                pass
+                if not live.cancelled():
+                    # The cancellation was aimed at THIS task (the
+                    # caller being cancelled or shut down), not at the
+                    # debate — let it propagate instead of swallowing
+                    # the caller's outcome.
+                    raise
+                # The debate's own loop was cancelled (an internal
+                # cancel persists CANCELLED; close() leaves RUNNING
+                # for the boot sweep) — the record reloaded below
+                # carries whichever outcome landed.
         else:
             await self._run_to_completion(user_id, discussion_id)
         final = await self._storage.get_discussion(user_id, discussion_id)
