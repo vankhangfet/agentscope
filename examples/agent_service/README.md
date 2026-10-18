@@ -29,6 +29,12 @@ A FastAPI-based, multi-user agent platform built with AgentScope 2.0: chat agent
 - Configurable number of rounds; live view shows each argument as it is made
 - Domain-agnostic — the same mechanism works for project management, architecture, code review, or security debates
 
+**Factory**
+- Turn a problem statement into shipped work: a ticket flows through Requirements, Architecture, and Development phases
+- The first two phases each run a multi-agent discussion with a dedicated role group (product, architecture) and a judge; disagreements stay visible — no forced consensus
+- Humans approve at every gate with a note, or reject to re-run a phase; in Delegated mode gates auto-approve until the final review
+- The Development phase breaks work into tasks (Plan Lead), executes them with agent sessions in a per-ticket workspace (Developer), and ends with a code review pass
+
 **Channels & Notifications**
 - Telegram bot (two-way chat)
 - MS Teams push notifications (via Incoming Webhook) and a `send_teams_notification` agent tool
