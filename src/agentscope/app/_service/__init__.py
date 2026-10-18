@@ -14,6 +14,7 @@ from ._credential_binding import (
 )
 from ._chat import ChatService
 from .discussion import DebateEngine
+from .factory import FactoryEngine
 from ._embedding import get_embedding_model
 from ._index_sweeper import IndexSweeper
 from ._index_task_consumer import IndexTaskConsumer
@@ -49,6 +50,7 @@ __all__ = [
     "ChatService",
     "CredentialView",
     "DebateEngine",
+    "FactoryEngine",
     "GitStatus",
     "IndexSweeper",
     "IndexTaskConsumer",
