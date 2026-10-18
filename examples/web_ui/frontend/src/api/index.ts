@@ -67,6 +67,29 @@ export {
 	cancelDiscussion,
 	rerunDiscussion,
 } from './discussion';
+export {
+	FACTORY_TERMINAL_STATUSES,
+	createFactoryTicket,
+	listFactoryTickets,
+	getFactoryTicket,
+	approveFactoryTicket,
+	rejectFactoryTicket,
+	cancelFactoryTicket,
+} from './factory';
+export type {
+	FactoryMode,
+	FactoryPhase,
+	FactoryStatus,
+	FactoryTaskStatus,
+	FactoryTask,
+	FactoryDecision,
+	FactoryTicketView,
+	CreateFactoryTicketRequest,
+	CreateFactoryTicketResponse,
+	ListFactoryTicketsParams,
+	ListFactoryTicketsResponse,
+	FactoryTicketDetailResponse,
+} from './factory';
 export { embeddingModelApi, modelApi, realtimeModelApi, ttsModelApi } from './model';
 export { realtimeApi } from './realtime';
 export { knowledgeBaseApi } from './knowledgeBase';

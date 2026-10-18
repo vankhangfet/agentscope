@@ -18,6 +18,8 @@ import { ChatPage } from '@/pages/chat';
 import { CredentialPage } from '@/pages/credential';
 import { DiscussionPage } from '@/pages/discussion';
 import { DiscussionDetailPage } from '@/pages/discussion/detail';
+import { FactoryPage } from '@/pages/factory';
+import { FactoryTicketDetailPage } from '@/pages/factory/detail';
 import { KnowledgePage } from '@/pages/knowledge';
 import { SchedulePage } from '@/pages/schedule';
 import { SetupPage } from '@/pages/setup';
@@ -78,6 +80,11 @@ const router = createBrowserRouter([
 					{
 						path: '/discussion/:discussionId',
 						element: <DiscussionDetailPage />,
+					},
+					{ path: '/factory', element: <FactoryPage /> },
+					{
+						path: '/factory/:ticketId',
+						element: <FactoryTicketDetailPage />,
 					},
 				],
 			},

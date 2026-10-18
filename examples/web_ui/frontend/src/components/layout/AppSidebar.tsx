@@ -4,6 +4,7 @@ import {
 	Cable,
 	Calendars,
 	Compass,
+	Factory,
 	KeyRound,
 	Languages,
 	LibraryBig,
@@ -150,6 +151,18 @@ export function AppSidebar() {
 									className="justify-center"
 								>
 									<MessagesSquare />
+								</SidebarMenuButton>
+							</SidebarMenuItem>
+							<SidebarMenuItem>
+								<SidebarMenuButton
+									tooltip={{ children: t('common.factory'), hidden: false }}
+									// Stays lit while on a ticket's live view,
+									// mirroring the discussion entry.
+									isActive={location.pathname.startsWith('/factory')}
+									onClick={() => navigate('/factory')}
+									className="justify-center"
+								>
+									<Factory />
 								</SidebarMenuButton>
 							</SidebarMenuItem>
 							<SidebarMenuItem>

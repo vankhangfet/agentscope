@@ -40,6 +40,7 @@
 		"uploading": "上传中",
 		"workflow": "工作流",
 		"discussion": "讨论",
+		"factory": "工厂",
 		"leader": "队长",
 		"time": "时间",
 		"yes": "是",
@@ -917,6 +918,109 @@
 			"judgeTag": "仲裁者",
 			"judgeEvaluating": "正在评估本轮…",
 			"judgeWaiting": "正在为论点评分并检查是否达成共识…"
+		}
+	},
+	"factory": {
+		"subtitle": "从问题到评审通过的代码，逐阶段推进的工单",
+		"status": {
+			"PENDING": "等待中",
+			"RUNNING": "运行中",
+			"WAITING_HUMAN": "等待您的决定",
+			"COMPLETED": "已完成",
+			"FAILED": "已失败",
+			"CANCELLED": "已取消"
+		},
+		"phase": {
+			"REQUIREMENTS": "需求",
+			"ARCHITECTURE": "架构",
+			"DEVELOP": "开发"
+		},
+		"mode": {
+			"COLLABORATIVE": "协作",
+			"DELEGATED": "委托"
+		},
+		"taskStatus": {
+			"PENDING": "等待中",
+			"RUNNING": "运行中",
+			"DONE": "已完成",
+			"FAILED": "已失败"
+		},
+		"timeline": {
+			"label": "阶段时间线",
+			"gate": "门禁",
+			"gateWaiting": "等待您的裁决",
+			"gatePassed": "门禁已通过",
+			"gateFinal": "最终门禁"
+		},
+		"list": {
+			"title": "工厂",
+			"label": "工单",
+			"count_one": "{{count}} 个工单",
+			"count_other": "{{count}} 个工单",
+			"new": "新建工单",
+			"loadFailed": "无法加载工单",
+			"retry": "重试",
+			"emptyTitle": "暂无工单",
+			"emptyDescription": "提交一个描述问题的工单——工厂会论证需求与架构，然后开发并评审各项任务。",
+			"allStatuses": "全部状态",
+			"table": {
+				"title": "标题",
+				"phase": "阶段",
+				"status": "状态",
+				"mode": "模式",
+				"updated": "更新时间"
+			}
+		},
+		"create": {
+			"title": "新建工单",
+			"description": "描述你的问题——工厂会依次走完需求、架构和开发阶段。",
+			"titleLabel": "标题",
+			"titlePlaceholder": "用一句话描述问题",
+			"descriptionLabel": "描述",
+			"descriptionPlaceholder": "工厂据此开展工作的问题描述——背景、约束、完成标准。",
+			"modelLabel": "模型",
+			"modelPlaceholder": "所有角色共用的模型",
+			"modeLabel": "门禁模式",
+			"modeCollaborativeHint": "每个门禁都由您亲自批准或驳回。",
+			"modeDelegatedHint": "门禁自动通过，仅最终门禁等待您裁决。",
+			"submit": "开工",
+			"created": "工单已创建"
+		},
+		"detail": {
+			"back": "返回工厂工单",
+			"loadFailed": "无法加载工单",
+			"trigger": "触发方式",
+			"workspace": "工作区",
+			"finished": "结束时间",
+			"cancel": "取消工单",
+			"cancelTitle": "取消此工单？",
+			"cancelDescription": "流程将立即停止并标记为已取消。此操作无法撤销。",
+			"cancelConfirm": "取消工单",
+			"cancelled": "工单已取消",
+			"viewDiscussion": "查看讨论",
+			"noArtifact": "尚未产生——该阶段完成后会显示在这里。",
+			"noTasks": "暂无任务——开发阶段开始后，规划负责人会拆解工作。",
+			"taskOutput": "输出",
+			"assignee": "负责人",
+			"review": "评审",
+			"decisionLog": "决策日志",
+			"noDecisions": "暂无决策。",
+			"consensus": "达成一致",
+			"noConsensus": "尚未一致",
+			"gateNote": "门禁备注",
+			"gate": {
+				"title": "门禁裁决",
+				"description": "审阅该阶段的结论——批准以继续，驳回则重跑该阶段。",
+				"noteLabel": "门禁备注",
+				"notePlaceholder": "备注（可选）——将随决策一同记录",
+				"approve": "批准",
+				"reject": "驳回",
+				"rejectTitle": "驳回此门禁？",
+				"rejectDescription": "该阶段将使用全新讨论从头重跑。此操作无法撤销。",
+				"rejectConfirm": "驳回并重跑",
+				"approved": "门禁已批准",
+				"rejected": "门禁已驳回——该阶段将重跑"
+			}
 		}
 	},
 	"model-parameters": {

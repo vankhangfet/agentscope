@@ -40,6 +40,7 @@
 		"uploading": "Uploading",
 		"workflow": "Workflows",
 		"discussion": "Discussions",
+		"factory": "Factory",
 		"leader": "Leader",
 		"time": "Time",
 		"yes": "Yes",
@@ -917,6 +918,109 @@
 			"judgeTag": "Arbitrator",
 			"judgeEvaluating": "is weighing the round…",
 			"judgeWaiting": "Scoring the arguments and checking for consensus…"
+		}
+	},
+	"factory": {
+		"subtitle": "Tickets from problem to reviewed code, phase by phase",
+		"status": {
+			"PENDING": "Pending",
+			"RUNNING": "Running",
+			"WAITING_HUMAN": "Waiting for you",
+			"COMPLETED": "Completed",
+			"FAILED": "Failed",
+			"CANCELLED": "Cancelled"
+		},
+		"phase": {
+			"REQUIREMENTS": "Requirements",
+			"ARCHITECTURE": "Architecture",
+			"DEVELOP": "Develop"
+		},
+		"mode": {
+			"COLLABORATIVE": "Collaborative",
+			"DELEGATED": "Delegated"
+		},
+		"taskStatus": {
+			"PENDING": "Pending",
+			"RUNNING": "Running",
+			"DONE": "Done",
+			"FAILED": "Failed"
+		},
+		"timeline": {
+			"label": "Phase timeline",
+			"gate": "Gate",
+			"gateWaiting": "Waiting for your verdict",
+			"gatePassed": "Gate approved",
+			"gateFinal": "Final gate"
+		},
+		"list": {
+			"title": "Factory",
+			"label": "Tickets",
+			"count_one": "{{count}} ticket",
+			"count_other": "{{count}} tickets",
+			"new": "New Ticket",
+			"loadFailed": "Couldn't load tickets",
+			"retry": "Retry",
+			"emptyTitle": "No tickets",
+			"emptyDescription": "Open a ticket with your problem — the factory argues the requirements and architecture, then builds and reviews the tasks.",
+			"allStatuses": "All statuses",
+			"table": {
+				"title": "Title",
+				"phase": "Phase",
+				"status": "Status",
+				"mode": "Mode",
+				"updated": "Updated"
+			}
+		},
+		"create": {
+			"title": "New Ticket",
+			"description": "State the problem — the factory walks it through requirements, architecture and development.",
+			"titleLabel": "Title",
+			"titlePlaceholder": "The problem, in one line",
+			"descriptionLabel": "Description",
+			"descriptionPlaceholder": "The problem statement the factory works from — context, constraints, what done looks like.",
+			"modelLabel": "Model",
+			"modelPlaceholder": "Model every role runs on",
+			"modeLabel": "Gate mode",
+			"modeCollaborativeHint": "You approve or reject every gate yourself.",
+			"modeDelegatedHint": "Gates auto-approve except the final one, which waits for you.",
+			"submit": "Open Ticket",
+			"created": "Ticket opened"
+		},
+		"detail": {
+			"back": "Back to factory tickets",
+			"loadFailed": "Couldn't load the ticket",
+			"trigger": "Trigger",
+			"workspace": "Workspace",
+			"finished": "Finished",
+			"cancel": "Cancel ticket",
+			"cancelTitle": "Cancel this ticket?",
+			"cancelDescription": "The walk stops where it is and the ticket is marked cancelled. This cannot be undone.",
+			"cancelConfirm": "Cancel ticket",
+			"cancelled": "Ticket cancelled",
+			"viewDiscussion": "View discussion",
+			"noArtifact": "Not yet — this fills in when the phase concludes.",
+			"noTasks": "No tasks yet — the Plan Lead breaks the work down once the Develop phase starts.",
+			"taskOutput": "Output",
+			"assignee": "Assignee",
+			"review": "Review",
+			"decisionLog": "Decision log",
+			"noDecisions": "No decisions yet.",
+			"consensus": "Consensus",
+			"noConsensus": "No consensus",
+			"gateNote": "Gate note",
+			"gate": {
+				"title": "Gate check",
+				"description": "Review this phase's conclusion — approve to move on, reject to re-run the phase.",
+				"noteLabel": "Gate note",
+				"notePlaceholder": "Note (optional) — logged with your decision",
+				"approve": "Approve",
+				"reject": "Reject",
+				"rejectTitle": "Reject this gate?",
+				"rejectDescription": "The phase re-runs from scratch with a fresh discussion. This cannot be undone.",
+				"rejectConfirm": "Reject and re-run",
+				"approved": "Gate approved",
+				"rejected": "Gate rejected — the phase re-runs"
+			}
 		}
 	},
 	"model-parameters": {
