@@ -422,10 +422,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         engine = getattr(app.state, "workflow_engine", None)
         if engine is not None:
             await engine.close()
-        # The factory closes before the debate engine: its walkers
-        # await debate tasks, so cancelling them first cascades into
-        # their discussions, and the debate close then drains the
-        # rest.
+        # The factory closes before the debate engine: cancelling the
+        # walkers first stops every ticket mutating while the debate
+        # engine still owns its tasks, so that engine's own close
+        # just below is what drains the phase discussions the walkers
+        # leave behind.
         factory_engine = getattr(app.state, "factory_engine", None)
         if factory_engine is not None:
             await factory_engine.close()

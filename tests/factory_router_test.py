@@ -33,6 +33,7 @@ from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
 from agentscope.app import create_app
+from agentscope.app._router._schema import FactoryTicketView
 from agentscope.app._service.factory import FactoryEngine
 from agentscope.app.message_bus import RedisMessageBus
 from agentscope.app.storage import (
@@ -361,7 +362,15 @@ class FactoryRouterTest(IsolatedAsyncioTestCase):
         self.assertIsNone(parked["finished_at"])
         self.assertIsNotNone(parked["created_at"])
         self.assertIsNotNone(parked["updated_at"])
-        self.assertIsNotNone(parked["updated_at"])
+        # The posted model config round-trips through the projection.
+        self.assertEqual(
+            parked["chat_model_config"]["model"],
+            "factory-model",
+        )
+        self.assertEqual(
+            parked["chat_model_config"]["credential_id"],
+            self._credential_id,
+        )
         # The phase's discussion ran to a conclusion and banked it.
         discussion_id = parked["discussions"]["REQUIREMENTS"]
         self.assertTrue(discussion_id)
@@ -605,6 +614,24 @@ class FactoryRouterTest(IsolatedAsyncioTestCase):
         # Nothing above persisted anything.
         listed = self._client.get("/factory/", headers=HEADERS).json()
         self.assertEqual(listed["total"], 0)
+
+    def test_view_covers_every_ticket_field(self) -> None:
+        """The API view carries every persisted ticket field.
+
+        The discussion endpoints embed the record's data model
+        wholesale, so a new field reaches clients for free; this API
+        hand-rolls its projection (``FactoryTicketView.from_record``
+        lists the fields by hand), so the burden of keeping it
+        complete shifts to a pin: every :class:`FactoryTicketData`
+        field must appear on the view, alongside the record ids the
+        view adds. A model field the view forgot fails here, not as
+        a blank panel in the UI.
+        """
+        self.assertGreaterEqual(
+            set(FactoryTicketView.model_fields),
+            set(FactoryTicketData.model_fields)
+            | {"ticket_id", "created_at", "updated_at"},
+        )
 
     def test_openapi_lists_factory_routes(self) -> None:
         """The factory routes exist and never collide."""
