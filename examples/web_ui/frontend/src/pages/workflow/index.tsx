@@ -1,10 +1,11 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
-import { Copy, Ellipsis, History, Pen, Plus, Trash2, Workflow } from 'lucide-react';
+import { Copy, Ellipsis, History, Pen, Play, Plus, Trash2, Workflow } from 'lucide-react';
 import * as React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 
+import { RunWorkflowDialog } from './components/RunWorkflowDialog';
 import type { Workflow as WorkflowRecord } from '@/api';
 import { getWorkflow } from '@/api';
 import { DeleteDialog } from '@/components/dialog/DeleteDialog';
@@ -47,6 +48,7 @@ interface WorkflowCardProps {
 	/** True while this row's duplicate request is in flight. */
 	duplicating: boolean;
 	onOpen: () => void;
+	onRun: () => void;
 	onDuplicate: () => void;
 	onViewRuns: () => void;
 	onDelete: () => void;
@@ -57,6 +59,7 @@ function WorkflowCard({
 	workflow,
 	duplicating,
 	onOpen,
+	onRun,
 	onDuplicate,
 	onViewRuns,
 	onDelete,
@@ -104,6 +107,10 @@ function WorkflowCard({
 							<Pen />
 							{t('workflow.list.actions.edit')}
 						</DropdownMenuItem>
+						<DropdownMenuItem onClick={onRun}>
+							<Play />
+							{t('workflow.list.actions.run')}
+						</DropdownMenuItem>
 						<DropdownMenuItem disabled={duplicating} onClick={onDuplicate}>
 							<Copy />
 							{t('workflow.list.actions.duplicate')}
@@ -131,6 +138,7 @@ export function WorkflowPage() {
 	const createWorkflow = useCreateWorkflow();
 	const deleteWorkflow = useDeleteWorkflow();
 	const [deleteTarget, setDeleteTarget] = React.useState<WorkflowRecord | null>(null);
+	const [runTarget, setRunTarget] = React.useState<WorkflowRecord | null>(null);
 	const [duplicatingId, setDuplicatingId] = React.useState<string | null>(null);
 
 	// No id means "new workflow" — the builder prompts for a name.
@@ -233,6 +241,7 @@ export function WorkflowPage() {
 										workflow={workflow}
 										duplicating={duplicatingId === workflow.id}
 										onOpen={() => openBuilder(workflow.id)}
+										onRun={() => setRunTarget(workflow)}
 										onDuplicate={() => void handleDuplicate(workflow)}
 										onViewRuns={() =>
 											navigate(`/workflow/runs?workflowId=${workflow.id}`)
@@ -260,6 +269,12 @@ export function WorkflowPage() {
 					await deleteWorkflow.mutateAsync(id);
 					setDeleteTarget(null);
 				}}
+			/>
+
+			<RunWorkflowDialog
+				workflowId={runTarget?.id}
+				open={runTarget !== null}
+				onOpenChange={(open) => !open && setRunTarget(null)}
 			/>
 		</div>
 	);

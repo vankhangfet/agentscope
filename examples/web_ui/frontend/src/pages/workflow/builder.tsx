@@ -10,7 +10,7 @@ import type {
 	XYPosition,
 } from '@xyflow/react';
 import { ReactFlowProvider, useReactFlow } from '@xyflow/react';
-import { Save, TriangleAlert, Workflow, X } from 'lucide-react';
+import { Play, Save, TriangleAlert, Workflow, X } from 'lucide-react';
 import * as React from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -18,6 +18,7 @@ import { toast } from 'sonner';
 import { NodeConfigPanel } from './components/NodeConfigPanel';
 import { NodePalette } from './components/NodePalette';
 import type { NodeKind } from './components/nodeTypes';
+import { RunWorkflowDialog } from './components/RunWorkflowDialog';
 import { NODE_ID_PATTERN, validateGraph } from './components/validateGraph';
 import { WorkflowCanvas } from './components/WorkflowCanvas';
 import type { NodeConfig, WorkflowData, WorkflowGraph } from '@/api';
@@ -81,6 +82,22 @@ function defaultConfig(kind: NodeKind): NodeConfig {
 }
 
 /**
+ * Canonical text of the editor's persisted fields — the same projection
+ * `handleSave` sends — so "unsaved changes" is a plain string compare
+ * against the last seeded/saved snapshot.
+ */
+function serializeEditor(name: string, description: string, graph: WorkflowGraph): string {
+	return JSON.stringify({
+		// Saved names are trimmed server-side; trim here too so a
+		// trailing space right after save doesn't read as a new edit.
+		name: name.trim(),
+		description,
+		nodes: graph.nodes.map(({ id, position, config }) => ({ id, position, config })),
+		edges: graph.edges ?? [],
+	});
+}
+
+/**
  * Detects a single label rename between two branch label lists, so an
  * edge wired to the old label can follow the rename. Null when the
  * change is anything other than exactly one in-place rename.
@@ -128,6 +145,11 @@ function Builder() {
 	const [selectedEdgeIds, setSelectedEdgeIds] = React.useState<string[]>([]);
 	const [showProblems, setShowProblems] = React.useState(false);
 	const [saving, setSaving] = React.useState(false);
+	const [runOpen, setRunOpen] = React.useState(false);
+	// The editor state as last seeded or saved; drift against it is the
+	// "unsaved changes" that keeps the Run button disabled. State, not a
+	// ref, because the render-time comparison reads it.
+	const [cleanSnapshot, setCleanSnapshot] = React.useState('');
 
 	const rfInstance = React.useRef<ReactFlowInstance | undefined>(undefined);
 	const canvasRef = React.useRef<HTMLDivElement | null>(null);
@@ -143,6 +165,9 @@ function Builder() {
 		setName(workflow.name);
 		setDescription(workflow.description ?? '');
 		setVersion(workflow.version ?? null);
+		setCleanSnapshot(
+			serializeEditor(workflow.name, workflow.description ?? '', workflow.graph),
+		);
 		// The graph arrives after mount, so fitView-on-init missed it.
 		requestAnimationFrame(() =>
 			rfInstance.current?.fitView({ padding: 0.25, maxZoom: 1 }),
@@ -150,6 +175,10 @@ function Builder() {
 	}, [workflowId, workflow]);
 
 	const problems = React.useMemo(() => validateGraph(graph), [graph]);
+
+	// Drift between the editor and the last seeded/saved snapshot. Runs
+	// execute the stored workflow, so unsaved edits disable Run.
+	const dirty = serializeEditor(name, description, graph) !== cleanSnapshot;
 
 	// Pop the problems panel open when issues first appear, so the
 	// disabled Save button is never a mystery.
@@ -326,6 +355,20 @@ function Builder() {
 	const saveDisabled =
 		saving || loading || !name.trim() || graph.nodes.length === 0 || problems.length > 0;
 
+	// ─── Run ────────────────────────────────────────────────────────────
+
+	// A run executes the stored workflow, so it needs a saved, valid
+	// graph: brand-new or edited-but-unsaved, and any validation problem
+	// all keep the button disabled — with the reason as its tooltip.
+	const runDisabled = loading || !workflowId || dirty || problems.length > 0;
+	const runReason = loading
+		? undefined
+		: !workflowId || dirty
+			? t('workflow.builder.runUnsaved')
+			: problems.length > 0
+				? t('workflow.builder.runProblems', { count: problems.length })
+				: undefined;
+
 	const handleSave = async () => {
 		if (saveDisabled) return;
 		setSaving(true);
@@ -351,6 +394,8 @@ function Builder() {
 				seededFor.current = res.workflow_id;
 				navigate(`/workflow/builder/${res.workflow_id}`, { replace: true });
 			}
+			// What was just persisted is the new clean state.
+			setCleanSnapshot(serializeEditor(data.name, data.description ?? '', data.graph));
 		} catch {
 			// The API client already toasted the failure detail.
 		} finally {
@@ -393,6 +438,19 @@ function Builder() {
 									{problems.length}
 								</Badge>
 							)}
+						</Button>
+						{/* `pointer-events-auto` keeps the reason tooltip
+						    hoverable while the button sits disabled. */}
+						<Button
+							variant="outline"
+							size="sm"
+							className="disabled:pointer-events-auto"
+							disabled={runDisabled}
+							tooltip={runReason}
+							onClick={() => setRunOpen(true)}
+						>
+							<Play />
+							{t('workflow.builder.run')}
 						</Button>
 						<Button size="sm" disabled={saveDisabled} onClick={() => void handleSave()}>
 							{saving ? <Spinner className="size-3.5" /> : <Save />}
@@ -483,6 +541,12 @@ function Builder() {
 					)}
 				</div>
 			</main>
+
+			<RunWorkflowDialog
+				workflowId={workflowId ?? undefined}
+				open={runOpen}
+				onOpenChange={setRunOpen}
+			/>
 		</div>
 	);
 }

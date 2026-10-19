@@ -1,11 +1,12 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
-import { History, Play, X } from 'lucide-react';
+import { History, Play, Workflow, X } from 'lucide-react';
 import * as React from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 
 import { RUN_TERMINAL_STATUSES } from './components/runReadiness';
 import { RunStatusBadge } from './components/RunStatusBadge';
+import { RunWorkflowDialog } from './components/RunWorkflowDialog';
 import type { ListRunsParams, RunStatus, WorkflowRun } from '@/api';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -97,6 +98,7 @@ export function WorkflowRunsPage() {
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
 	const [searchParams, setSearchParams] = useSearchParams();
+	const [runOpen, setRunOpen] = React.useState(false);
 
 	const workflowId = searchParams.get('workflowId');
 	const status = (searchParams.get('status') as RunStatus | null) ?? undefined;
@@ -217,9 +219,15 @@ export function WorkflowRunsPage() {
 								</EmptyDescription>
 							</EmptyHeader>
 							<EmptyContent>
+								{/* No workflow context here by design — the dialog
+								    brings its own workflow Select. */}
+								<Button size="sm" onClick={() => setRunOpen(true)}>
+									<Play />
+									{t('workflow.runs.runWorkflow')}
+								</Button>
 								<Button variant="outline" size="sm" asChild>
 									<Link to="/workflow">
-										<Play />
+										<Workflow />
 										{t('workflow.runs.goWorkflows')}
 									</Link>
 								</Button>
@@ -271,6 +279,8 @@ export function WorkflowRunsPage() {
 					)}
 				</div>
 			</main>
+
+			<RunWorkflowDialog open={runOpen} onOpenChange={setRunOpen} />
 		</div>
 	);
 }

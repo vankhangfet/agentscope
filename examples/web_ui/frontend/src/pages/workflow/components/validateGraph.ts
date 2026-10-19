@@ -9,8 +9,11 @@ import type { WorkflowEdge, WorkflowGraph, WorkflowNode } from '@/api';
  *
  * Deliberately NOT ported here — the server re-validates on save and
  * surfaces these as 422 toasts: pydantic field constraints (branch
- * min-length, retry counts, timeout bounds, loop-mode fields) and
- * cross-record checks (agent existence).
+ * min-length, retry counts, timeout bounds, the remaining loop-mode
+ * fields) and cross-record checks (agent existence). The one exception
+ * is the iterate loop's list template: an empty one is common enough
+ * mid-edit (the node ships with a blank template) that it is checked
+ * here so Save disables and the problems strip explains why.
  */
 
 /** Same pattern the backend enforces on node ids. */
@@ -172,6 +175,14 @@ export function validateGraph(graph: WorkflowGraph): string[] {
 				);
 			}
 			checkBranches(node.id, out, new Set(labels), problems, true);
+		} else if (node.config.type === 'loop') {
+			// Whitespace-only counts as empty: the node ships with a
+			// blank template and iterate has nothing to fan out without
+			// one (the backend rejects it on save, but only after a
+			// round trip — this keeps the Problems strip honest).
+			if (node.config.mode === 'iterate' && !(node.config.list_template ?? '').trim()) {
+				problems.push(`Loop '${node.id}' needs a list template`);
+			}
 		} else if (node.config.type === 'human_approval') {
 			const allowed = new Set(['approve', 'reject']);
 			if (node.config.timeout_branch !== 'fail') {

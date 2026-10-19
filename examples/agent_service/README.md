@@ -22,7 +22,7 @@ A FastAPI-based, multi-user agent platform built with AgentScope 2.0: chat agent
 **Workflows**
 - Build DAGs on a drag-and-drop canvas: agent nodes, condition branches, loops, and approval gates
 - Validate graphs client-side, run them manually, on a schedule, via REST API, or as a chat tool
-- Watch runs live (per-node status, logs, outputs) and approve or cancel from the UI
+- Watch runs live (per-node status, outputs) and approve or cancel from the UI
 
 **Discussions**
 - Multi-agent debates: any number of debaters, each with its own stance and model, plus a judge that scores arguments and detects consensus
@@ -83,7 +83,7 @@ Open the UI (usually `http://localhost:5173`), point it at `http://localhost:800
 ## Scheduling & Automation
 
 - Give any agent a cron schedule (`Schedule` page) — the agent runs on time and its reply can be pushed to a channel
-- Workflows run on schedules too; agents can call `run_workflow` as a tool
+- Workflows run on schedules too; agents can call `WorkflowRun` as a tool
 - Everything is also available over REST — see the interactive docs at `http://localhost:8000/docs`
 
 ## Customization

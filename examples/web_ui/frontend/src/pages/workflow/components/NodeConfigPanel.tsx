@@ -307,6 +307,27 @@ function LoopForm({
 				</Select>
 			</div>
 
+			{/* The engine requires a body agent in BOTH modes: retry_until
+			    reruns it per attempt, and iterate fails any non-empty
+			    list at dispatch with "Node 'x' has no body agent to
+			    iterate with" — so the field shows for iterate too, not
+			    just retry_until. */}
+			<div className="space-y-1.5">
+				<Label className="text-xs">{t('workflow.builder.config.loop.bodyAgent')}</Label>
+				<AgentSelect
+					className="w-full"
+					agents={agents}
+					value={config.body_agent_id || null}
+					placeholder={t('workflow.builder.config.agent.selectPlaceholder')}
+					onChange={(body_agent_id) => onPatch({ body_agent_id })}
+				/>
+				{config.mode === 'iterate' && (
+					<p className="text-[11px] leading-snug text-muted-foreground">
+						{t('workflow.builder.config.loop.bodyAgentIterateHint')}
+					</p>
+				)}
+			</div>
+
 			{config.mode === 'iterate' ? (
 				<>
 					<div className="space-y-1.5">
@@ -346,16 +367,6 @@ function LoopForm({
 				</>
 			) : (
 				<>
-					<div className="space-y-1.5">
-						<Label className="text-xs">{t('workflow.builder.config.loop.bodyAgent')}</Label>
-						<AgentSelect
-							className="w-full"
-							agents={agents}
-							value={config.body_agent_id || null}
-							placeholder={t('workflow.builder.config.agent.selectPlaceholder')}
-							onChange={(body_agent_id) => onPatch({ body_agent_id })}
-						/>
-					</div>
 					<div className="space-y-1.5">
 						<Label className="text-xs">{t('workflow.builder.config.loop.verifierPrompt')}</Label>
 						<Textarea

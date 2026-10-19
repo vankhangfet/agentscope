@@ -647,6 +647,7 @@
 			"actions": {
 				"menu": "更多操作",
 				"edit": "编辑",
+				"run": "运行",
 				"duplicate": "创建副本",
 				"viewRuns": "查看运行",
 				"delete": "删除"
@@ -658,6 +659,10 @@
 			"save": "保存",
 			"saving": "保存中…",
 			"saved": "工作流已保存",
+			"run": "运行",
+			"runUnsaved": "请先保存",
+			"runProblems_one": "请先修复 {{count}} 个问题",
+			"runProblems_other": "请先修复 {{count}} 个问题",
 			"problems": "问题",
 			"problemsCount_one": "{{count}} 个问题",
 			"problemsCount_other": "{{count}} 个问题",
@@ -714,6 +719,7 @@
 					"parallel": "并行",
 					"parallelNote": "v1：顺序执行",
 					"bodyAgent": "主体智能体",
+					"bodyAgentIterateHint": "列表中的每一项都由此智能体执行；列表非空且未选择时，运行会失败。",
 					"verifierPrompt": "验证提示词",
 					"verifierPlaceholder": "仅在结果满足以下条件时通过…",
 					"maxAttempts": "最大尝试次数"
@@ -753,6 +759,7 @@
 			"emptyTitle": "暂无运行",
 			"emptyDescription": "启动一个工作流后，运行会显示在这里。",
 			"goWorkflows": "前往工作流",
+			"runWorkflow": "运行工作流",
 			"table": {
 				"workflow": "工作流",
 				"status": "状态",
@@ -760,6 +767,22 @@
 				"created": "创建时间",
 				"finished": "结束时间"
 			}
+		},
+		"runDialog": {
+			"title": "运行工作流",
+			"description": "立即启动一次运行并实时跟踪。",
+			"workflowLabel": "工作流",
+			"workflowPlaceholder": "选择工作流",
+			"noWorkflows": "还没有工作流——请先创建。",
+			"inputLabel": "输入（JSON）",
+			"inputInvalid": "不是有效的 JSON",
+			"inputNotObject": "输入必须是 JSON 对象",
+			"inputHint": "运行的输入；提示词模板可引用其中的字段。",
+			"modelLabel": "默认模型",
+			"modelPlaceholder": "可选",
+			"modelHint": "供未单独配置模型的智能体节点以及“重试直到通过”循环的验证器使用。",
+			"submit": "运行",
+			"submitting": "启动中…"
 		},
 		"runDetail": {
 			"back": "返回运行列表",

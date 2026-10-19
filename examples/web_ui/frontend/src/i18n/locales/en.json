@@ -647,6 +647,7 @@
 			"actions": {
 				"menu": "More actions",
 				"edit": "Edit",
+				"run": "Run",
 				"duplicate": "Duplicate",
 				"viewRuns": "View runs",
 				"delete": "Delete"
@@ -658,6 +659,10 @@
 			"save": "Save",
 			"saving": "Saving…",
 			"saved": "Workflow saved",
+			"run": "Run",
+			"runUnsaved": "Save first",
+			"runProblems_one": "Fix {{count}} problem first",
+			"runProblems_other": "Fix {{count}} problems first",
 			"problems": "Problems",
 			"problemsCount_one": "{{count}} problem",
 			"problemsCount_other": "{{count}} problems",
@@ -714,6 +719,7 @@
 					"parallel": "Parallel",
 					"parallelNote": "v1: sequential",
 					"bodyAgent": "Body agent",
+					"bodyAgentIterateHint": "Each item in the list runs this agent; a non-empty list without one fails the run.",
 					"verifierPrompt": "Verifier prompt",
 					"verifierPlaceholder": "Accept the result only if…",
 					"maxAttempts": "Max attempts"
@@ -753,6 +759,7 @@
 			"emptyTitle": "No runs",
 			"emptyDescription": "Start a workflow to see its runs here.",
 			"goWorkflows": "Go to workflows",
+			"runWorkflow": "Run a workflow",
 			"table": {
 				"workflow": "Workflow",
 				"status": "Status",
@@ -760,6 +767,22 @@
 				"created": "Created",
 				"finished": "Finished"
 			}
+		},
+		"runDialog": {
+			"title": "Run workflow",
+			"description": "Start a run now and follow it live.",
+			"workflowLabel": "Workflow",
+			"workflowPlaceholder": "Select a workflow",
+			"noWorkflows": "No workflows yet — create one first.",
+			"inputLabel": "Input (JSON)",
+			"inputInvalid": "Not valid JSON",
+			"inputNotObject": "Input must be a JSON object",
+			"inputHint": "The run's input; prompt templates can reference its fields.",
+			"modelLabel": "Default model",
+			"modelPlaceholder": "Optional",
+			"modelHint": "Used by agent nodes without their own model and by retry-until loops' verifier.",
+			"submit": "Run",
+			"submitting": "Starting…"
 		},
 		"runDetail": {
 			"back": "Back to runs",
