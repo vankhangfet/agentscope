@@ -211,32 +211,49 @@ export function DiscussionDetailPage() {
 
 	// ─── Entrance animation ──────────────────────────────────────────
 	//
-	// Arguments animate in only when they arrive live: the first data
-	// the page paints is snapshotted as the baseline (after the paint,
-	// in the effect below), so a COMPLETED — or merely old — discussion
-	// lands perfectly still, and anything outside that snapshot — the
-	// in-progress round's arguments as the poll delivers them — enters
-	// with the fade/slide. The animation then plays exactly once: keys
-	// are stable (a card is never re-keyed) and the class simply stays
-	// on, because CSS runs an entrance when the element mounts, not on
-	// every re-render — so a poll that changes nothing re-animates
-	// nothing.
-	const [initialArguments, setInitialArguments] = React.useState<Set<string> | null>(null);
+	// Arguments animate in only when they arrive live: each discussion's
+	// first painted data is snapshotted as that discussion's baseline
+	// (after the paint, in the effect below), so a COMPLETED — or merely
+	// old — discussion lands perfectly still, and anything outside the
+	// baseline — the in-progress round's arguments as the poll delivers
+	// them — enters with the fade/slide. The animation then plays
+	// exactly once: keys are stable (a card is never re-keyed) and the
+	// class simply stays on, because CSS runs an entrance when the
+	// element mounts, not on every re-render — so a poll that changes
+	// nothing re-animates nothing.
+	//
+	// The baseline is keyed by discussion id because this route's
+	// component instance survives rerun and edit-&-rerun, which
+	// navigate to a brand-new discussion without unmounting: the new
+	// discussion gets its own baseline, so its cards animate as they
+	// arrive instead of being swallowed by the old one's keys (a rerun
+	// starts with an empty blackboard, so in practice everything it
+	// paints arrives live, after its baseline).
+	const [baseline, setBaseline] = React.useState<{
+		discussionId: string;
+		keys: Set<string>;
+	} | null>(null);
 	React.useEffect(() => {
-		// Once only: whatever the first paint showed becomes the baseline.
-		if (discussion == null || initialArguments !== null) return;
-		setInitialArguments(
-			new Set(
+		// Once per discussion: whatever its first paint showed becomes
+		// its baseline. An id mismatch (rerun navigated this instance to
+		// a new discussion) re-snapshots from the new discussion's first
+		// painted data.
+		if (discussion == null || baseline?.discussionId === discussionId) return;
+		setBaseline({
+			discussionId,
+			keys: new Set(
 				discussion.rounds.flatMap((round) =>
 					round.arguments.map(
 						(argument, i) => `${round.round}:${argument.debater}:${i}`,
 					),
 				),
 			),
-		);
-	}, [discussion, initialArguments]);
+		});
+	}, [discussion, discussionId, baseline]);
 	const isFreshArgument = (round: number, debater: string, index: number) =>
-		initialArguments != null && !initialArguments.has(`${round}:${debater}:${index}`);
+		baseline != null &&
+		baseline.discussionId === discussionId &&
+		!baseline.keys.has(`${round}:${debater}:${index}`);
 
 	// ─── Loading / error shell ───────────────────────────────────────────
 

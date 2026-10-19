@@ -2,12 +2,10 @@ import { Loader2 } from 'lucide-react';
 
 import type { DiscussionData } from '@/api';
 import { AgentAvatar } from '@/components/agent/AgentAvatar';
+import { JUDGE_KEY } from '@/components/agent/agentIcons';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useTranslation } from '@/i18n/useI18n';
 import { cn } from '@/lib/utils';
-
-/** The judge's reserved `current_speaker` value, per the backend. */
-const JUDGE = 'judge';
 
 /**
  * A pulsing "live" dot — a filled core under an expanding ring, the
@@ -45,7 +43,7 @@ export function LiveSpeakerBar({ discussion }: { discussion: DiscussionData }) {
 	// steps aside rather than flashing an empty frame.
 	if (!speaker) return null;
 
-	const isJudge = speaker === JUDGE;
+	const isJudge = speaker === JUDGE_KEY;
 
 	return (
 		<section

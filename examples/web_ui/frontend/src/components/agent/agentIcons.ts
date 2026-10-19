@@ -45,6 +45,16 @@ import {
  * a role's icon lights up wherever the roster data flows. Any other
  * name (a user-named debater) falls back to the hashed pools below.
  */
+
+/**
+ * The judge's reserved identity, one source for the whole frontend:
+ * `current_speaker`'s judge value and the roster's judge name both
+ * carry it. Mirrors the backend's `JUDGE_KEY` in
+ * `agentscope/app/_service/discussion/_turns.py`, and is pinned there
+ * by `tests/factory_roles_test.py`.
+ */
+export const JUDGE_KEY = 'judge';
+
 export const ROLE_ICONS: Record<string, LucideIcon> = {
 	product_owner: ClipboardList,
 	business_analyst: LineChart,

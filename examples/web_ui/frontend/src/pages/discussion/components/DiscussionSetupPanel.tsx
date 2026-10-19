@@ -2,6 +2,7 @@ import { Users } from 'lucide-react';
 
 import type { DiscussionData } from '@/api';
 import { AgentAvatar } from '@/components/agent/AgentAvatar';
+import { JUDGE_KEY } from '@/components/agent/agentIcons';
 import { useTranslation } from '@/i18n/useI18n';
 
 /** The model label for a chat-model config: its `model`, or a dash. */
@@ -67,7 +68,7 @@ export function DiscussionSetupPanel({ discussion }: { discussion: DiscussionDat
 			{/* Judge */}
 			<div className="flex flex-col gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
 				<div className="flex items-center gap-2">
-					<AgentAvatar name="judge" size="sm" title={t('discussion.setup.judge')} />
+					<AgentAvatar name={JUDGE_KEY} size="sm" title={t('discussion.setup.judge')} />
 					<span className="min-w-0 flex-1 truncate text-xs font-semibold">
 						{t('discussion.setup.judge')}
 					</span>
