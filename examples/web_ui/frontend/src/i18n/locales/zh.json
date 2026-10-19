@@ -950,7 +950,18 @@
 			"gate": "门禁",
 			"gateWaiting": "等待您的裁决",
 			"gatePassed": "门禁已通过",
-			"gateFinal": "最终门禁"
+			"gateFinal": "最终门禁",
+			"caption": {
+				"REQUIREMENTS": "论证出需求",
+				"ARCHITECTURE": "论证出架构",
+				"DEVELOP": "先开发，后评审"
+			}
+		},
+		"roster": {
+			"title": "参与的智能体",
+			"panelTitle": "智能体阵容",
+			"judgeShared": "两场讨论共用{{title}}",
+			"loadFailed": "无法加载智能体阵容。"
 		},
 		"list": {
 			"title": "工厂",
@@ -961,7 +972,7 @@
 			"loadFailed": "无法加载工单",
 			"retry": "重试",
 			"emptyTitle": "暂无工单",
-			"emptyDescription": "提交一个描述问题的工单——工厂会论证需求与架构，然后开发并评审各项任务。",
+			"emptyDescription": "提交一个描述问题的工单——一支智能体团队会论证需求与架构，然后开发并评审这些工作。",
 			"allStatuses": "全部状态",
 			"table": {
 				"title": "标题",
@@ -981,8 +992,8 @@
 			"modelLabel": "模型",
 			"modelPlaceholder": "所有角色共用的模型",
 			"modeLabel": "门禁模式",
-			"modeCollaborativeHint": "每个门禁都由您亲自批准或驳回。",
-			"modeDelegatedHint": "门禁自动通过，仅最终门禁等待您裁决。",
+			"modeCollaborativeHint": "工厂继续之前，每个门禁都由您批准。",
+			"modeDelegatedHint": "各门禁自动通过，直到最终评审。",
 			"submit": "开工",
 			"created": "工单已创建"
 		},
@@ -998,13 +1009,13 @@
 			"cancelConfirm": "取消工单",
 			"cancelled": "工单已取消",
 			"viewDiscussion": "查看讨论",
-			"noArtifact": "尚未产生——该阶段完成后会显示在这里。",
-			"noTasks": "暂无任务——开发阶段开始后，规划负责人会拆解工作。",
+			"noArtifact": "还没有内容——该阶段的讨论结束后，产出的文档会显示在这里。",
+			"noTasks": "暂无任务——架构获批后，规划负责人会把工作拆解成任务。",
 			"taskOutput": "输出",
 			"assignee": "负责人",
 			"review": "评审",
 			"decisionLog": "决策日志",
-			"noDecisions": "暂无决策。",
+			"noDecisions": "暂无决策——每个阶段的结论与门禁备注都会记录在这里。",
 			"consensus": "达成一致",
 			"noConsensus": "尚未一致",
 			"gateNote": "门禁备注",

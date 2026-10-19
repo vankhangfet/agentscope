@@ -3,6 +3,7 @@ import {
 	ArrowLeft,
 	Ban,
 	Check,
+	ChevronDown,
 	Code2,
 	DraftingCompass,
 	Factory,
@@ -11,6 +12,7 @@ import {
 	ListChecks,
 	MessagesSquare,
 	ScrollText,
+	UsersRound,
 	X,
 } from 'lucide-react';
 import * as React from 'react';
@@ -22,7 +24,14 @@ import { FactoryPhaseBadge } from './components/FactoryPhaseBadge';
 import { FactoryPhaseTimeline } from './components/FactoryPhaseTimeline';
 import { FactoryStatusBadge } from './components/FactoryStatusBadge';
 import { FACTORY_TERMINAL_STATUSES } from '@/api';
-import type { FactoryDecision, FactoryTask, FactoryTaskStatus } from '@/api';
+import type {
+	FactoryDecision,
+	FactoryPhase,
+	FactoryRoleGroupView,
+	FactoryRoleView,
+	FactoryTask,
+	FactoryTaskStatus,
+} from '@/api';
 import { DeleteDialog } from '@/components/dialog/DeleteDialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -43,6 +52,7 @@ import { Spinner } from '@/components/ui/spinner';
 import {
 	useApproveFactoryTicket,
 	useCancelFactoryTicket,
+	useFactoryRoster,
 	useFactoryTicket,
 	useRejectFactoryTicket,
 } from '@/hooks/useFactoryTickets';
@@ -79,9 +89,106 @@ function DiscussionLink({ discussionId }: { discussionId: string }) {
 }
 
 /**
- * One phase's artifact panel: the section heading, the discussion that
- * produced it (when one is recorded) and the artifact text — or the
- * note that the phase has not concluded yet.
+ * One phase's role chips: the group's roles as small titles, each
+ * carrying its stance as a native tooltip. The full stances live one
+ * section down, in the agent roster panel.
+ */
+function RoleChips({ roles }: { roles: FactoryRoleView[] }) {
+	return (
+		<div className="mt-2 flex flex-wrap gap-1.5">
+			{roles.map((role) => (
+				<span
+					key={role.name}
+					title={role.stance}
+					className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground"
+				>
+					{role.title}
+				</span>
+			))}
+		</div>
+	);
+}
+
+/**
+ * The "Agent roster" panel: every group with its description, each
+ * role's full stance, and the judge both debates share. Collapsed by
+ * default — the phase headers already carry the chips; this is where
+ * the curious reader unfolds the whole team.
+ */
+function AgentRosterPanel({
+	groups,
+	judge,
+	error,
+}: {
+	groups: FactoryRoleGroupView[];
+	judge: FactoryRoleView | null;
+	error: Error | null;
+}) {
+	const { t } = useTranslation();
+	return (
+		<section className="rounded-lg border border-border p-4">
+			<Collapsible>
+				<CollapsibleTrigger className="flex w-full items-center justify-between gap-2 text-sm font-semibold">
+					<span className="flex items-center gap-2">
+						<UsersRound className="size-4 text-muted-foreground" />
+						{t('factory.roster.panelTitle')}
+					</span>
+					<ChevronDown className="size-4 text-muted-foreground transition-transform data-[state=open]:rotate-180" />
+				</CollapsibleTrigger>
+				<CollapsibleContent>
+					{error != null ? (
+						<p className="mt-3 text-xs text-muted-foreground">
+							{t('factory.roster.loadFailed')}
+						</p>
+					) : (
+						<div className="mt-3 space-y-4">
+							{groups.map((group) => (
+								<div key={group.phase} className="space-y-1.5">
+									<div className="flex items-center gap-2">
+										<span className="text-xs font-semibold">{group.title}</span>
+										<span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+											{group.roles.length}
+										</span>
+									</div>
+									<p className="text-xs text-muted-foreground">{group.description}</p>
+									<div className="space-y-2">
+										{group.roles.map((role) => (
+											<div key={role.name}>
+												<div className="text-xs font-medium">{role.title}</div>
+												<p className="text-xs leading-relaxed break-words whitespace-pre-wrap text-muted-foreground">
+													{role.stance}
+												</p>
+											</div>
+										))}
+									</div>
+								</div>
+							))}
+							{judge != null && (
+								<div className="space-y-1.5 border-t border-border pt-3">
+									<div className="flex items-center gap-2">
+										<span className="text-xs font-semibold">{judge.title}</span>
+									</div>
+									<p className="text-xs leading-relaxed break-words whitespace-pre-wrap text-muted-foreground">
+										{judge.stance}
+									</p>
+									<p className="text-[11px] text-muted-foreground">
+										{t('factory.roster.judgeShared', { title: judge.title })}
+									</p>
+								</div>
+							)}
+						</div>
+					)}
+				</CollapsibleContent>
+			</Collapsible>
+		</section>
+	);
+}
+
+/**
+ * One phase's artifact panel: the section heading, the roles that run
+ * the phase (when the roster has loaded), the discussion that produced
+ * it (when one is recorded) and the artifact text — or the note that
+ * the phase has not concluded yet.
  */
 function ArtifactSection({
 	icon: Icon,
@@ -89,12 +196,14 @@ function ArtifactSection({
 	artifact,
 	discussionId,
 	emptyHint,
+	roles,
 }: {
 	icon: React.ComponentType<{ className?: string }>;
 	title: string;
 	artifact: string | null;
 	discussionId: string | undefined;
 	emptyHint: string;
+	roles?: FactoryRoleView[];
 }) {
 	return (
 		<section className="rounded-lg border border-border p-4">
@@ -105,6 +214,7 @@ function ArtifactSection({
 				</div>
 				{discussionId != null && <DiscussionLink discussionId={discussionId} />}
 			</div>
+			{roles != null && roles.length > 0 && <RoleChips roles={roles} />}
 			{artifact != null ? (
 				<p className="mt-2 text-sm leading-relaxed break-words whitespace-pre-wrap">
 					{artifact}
@@ -220,6 +330,12 @@ export function FactoryTicketDetailPage() {
 		setPoll(ticket == null || !FACTORY_TERMINAL_STATUSES.includes(ticket.status));
 	}, [ticket]);
 
+	// The team that runs the phases — a static catalog, so one cached
+	// fetch backs the phase chips and the roster panel alike.
+	const roster = useFactoryRoster();
+	const rolesFor = (phase: FactoryPhase) =>
+		roster.groups.find((group) => group.phase === phase)?.roles;
+
 	// ─── Loading / error shell ───────────────────────────────────────────
 
 	if (!ticket) {
@@ -258,6 +374,7 @@ export function FactoryTicketDetailPage() {
 
 	const live = !FACTORY_TERMINAL_STATUSES.includes(ticket.status);
 	const discussions = ticket.discussions;
+	const developRoles = rolesFor('DEVELOP');
 
 	// Answering the gate with the note typed so far; both mutations
 	// invalidate the factory views, so the page repaints on its own.
@@ -378,6 +495,7 @@ export function FactoryTicketDetailPage() {
 						artifact={ticket.requirements}
 						discussionId={discussions.REQUIREMENTS}
 						emptyHint={t('factory.detail.noArtifact')}
+						roles={rolesFor('REQUIREMENTS')}
 					/>
 
 					<ArtifactSection
@@ -386,6 +504,7 @@ export function FactoryTicketDetailPage() {
 						artifact={ticket.architecture}
 						discussionId={discussions.ARCHITECTURE}
 						emptyHint={t('factory.detail.noArtifact')}
+						roles={rolesFor('ARCHITECTURE')}
 					/>
 
 					<section className="rounded-lg border border-border p-4">
@@ -398,6 +517,9 @@ export function FactoryTicketDetailPage() {
 								<DiscussionLink discussionId={discussions.DEVELOP} />
 							)}
 						</div>
+						{developRoles != null && developRoles.length > 0 && (
+							<RoleChips roles={developRoles} />
+						)}
 						{ticket.tasks.length === 0 ? (
 							<p className="mt-2 text-sm text-muted-foreground italic">
 								{t('factory.detail.noTasks')}
@@ -421,6 +543,14 @@ export function FactoryTicketDetailPage() {
 							</div>
 						)}
 					</section>
+
+					{!roster.loading && (
+						<AgentRosterPanel
+							groups={roster.groups}
+							judge={roster.judge}
+							error={roster.error}
+						/>
+					)}
 
 					<section className="rounded-lg border border-border p-4">
 						<div className="flex items-center gap-2 text-sm font-semibold">

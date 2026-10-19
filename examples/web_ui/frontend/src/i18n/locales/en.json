@@ -950,7 +950,18 @@
 			"gate": "Gate",
 			"gateWaiting": "Waiting for your verdict",
 			"gatePassed": "Gate approved",
-			"gateFinal": "Final gate"
+			"gateFinal": "Final gate",
+			"caption": {
+				"REQUIREMENTS": "Argued into requirements",
+				"ARCHITECTURE": "Argued into architecture",
+				"DEVELOP": "Built, then reviewed"
+			}
+		},
+		"roster": {
+			"title": "Agents involved",
+			"panelTitle": "Agent roster",
+			"judgeShared": "Both debates share the {{title}}",
+			"loadFailed": "Couldn't load the agent roster."
 		},
 		"list": {
 			"title": "Factory",
@@ -961,7 +972,7 @@
 			"loadFailed": "Couldn't load tickets",
 			"retry": "Retry",
 			"emptyTitle": "No tickets",
-			"emptyDescription": "Open a ticket with your problem — the factory argues the requirements and architecture, then builds and reviews the tasks.",
+			"emptyDescription": "Open a ticket with your problem — a team of agents argues the requirements and the architecture, then builds and reviews the work.",
 			"allStatuses": "All statuses",
 			"table": {
 				"title": "Title",
@@ -981,8 +992,8 @@
 			"modelLabel": "Model",
 			"modelPlaceholder": "Model every role runs on",
 			"modeLabel": "Gate mode",
-			"modeCollaborativeHint": "You approve or reject every gate yourself.",
-			"modeDelegatedHint": "Gates auto-approve except the final one, which waits for you.",
+			"modeCollaborativeHint": "You approve every gate before the factory continues.",
+			"modeDelegatedHint": "Gates auto-approve until the final review.",
 			"submit": "Open Ticket",
 			"created": "Ticket opened"
 		},
@@ -998,13 +1009,13 @@
 			"cancelConfirm": "Cancel ticket",
 			"cancelled": "Ticket cancelled",
 			"viewDiscussion": "View discussion",
-			"noArtifact": "Not yet — this fills in when the phase concludes.",
-			"noTasks": "No tasks yet — the Plan Lead breaks the work down once the Develop phase starts.",
+			"noArtifact": "Nothing yet — the artifact lands here once this phase's debate concludes.",
+			"noTasks": "No tasks yet — once the architecture is approved, the Plan Lead breaks the work into tasks.",
 			"taskOutput": "Output",
 			"assignee": "Assignee",
 			"review": "Review",
 			"decisionLog": "Decision log",
-			"noDecisions": "No decisions yet.",
+			"noDecisions": "No decisions yet — each phase's conclusion and gate note lands here.",
 			"consensus": "Consensus",
 			"noConsensus": "No consensus",
 			"gateNote": "Gate note",

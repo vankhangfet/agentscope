@@ -195,3 +195,54 @@ class FactoryTicketDetailResponse(BaseModel):
     """One factory ticket's projected state."""
 
     data: FactoryTicketView = Field(description="The ticket's view.")
+
+
+class FactoryRoleView(BaseModel):
+    """One factory role, as the roster shows it."""
+
+    name: str = Field(
+        description="The role's agent-safe name — the name it runs "
+        "under.",
+    )
+
+    title: str = Field(description="The role's display title.")
+
+    stance: str = Field(
+        description="What the role argues for (debates) or does "
+        "(development), written for display.",
+    )
+
+
+class FactoryRoleGroupView(BaseModel):
+    """One phase's roles, as the roster shows it."""
+
+    phase: FactoryPhase = Field(
+        description="The phase the group serves.",
+    )
+
+    title: str = Field(description="The group's display title.")
+
+    description: str = Field(
+        description="One line: what the group produces.",
+    )
+
+    roles: list[FactoryRoleView] = Field(
+        description="The group's roles, in speaking order.",
+    )
+
+
+class FactoryRosterResponse(BaseModel):
+    """The factory's whole team, as the roster shows it.
+
+    The static role catalog every ticket runs — not any ticket's
+    state — with the judge alongside because both debate phases
+    share it.
+    """
+
+    groups: list[FactoryRoleGroupView] = Field(
+        description="The role groups, in phase order.",
+    )
+
+    judge: FactoryRoleView = Field(
+        description="The judge both debate phases share.",
+    )

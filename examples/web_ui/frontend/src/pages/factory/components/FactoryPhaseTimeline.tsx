@@ -61,7 +61,8 @@ function Gate({
 	);
 }
 
-/** One timeline step: a stateful circle plus the phase's name. */
+/** One timeline step: a stateful circle, the phase's name and a
+ * one-line caption of what the phase does. */
 function Step({
 	phase,
 	index,
@@ -107,13 +108,19 @@ function Step({
 					index + 1
 				)}
 			</span>
-			<span
-				className={cn(
-					'text-xs',
-					state === 'current' ? 'font-semibold text-foreground' : 'text-muted-foreground',
-				)}
-			>
-				{t(`factory.phase.${phase}`)}
+			<span className="flex flex-col items-start leading-tight">
+				<span
+					className={cn(
+						'text-xs',
+						state === 'current' ? 'font-semibold text-foreground' : 'text-muted-foreground',
+					)}
+				>
+					{t(`factory.phase.${phase}`)}
+				</span>
+				{/* One short line under the name: what the phase does. */}
+				<span className="text-[10px] text-muted-foreground/80">
+					{t(`factory.timeline.caption.${phase}`)}
+				</span>
 			</span>
 		</li>
 	);

@@ -4,12 +4,14 @@ import {
 	approveFactoryTicket,
 	cancelFactoryTicket,
 	createFactoryTicket,
+	getFactoryRoles,
 	getFactoryTicket,
 	listFactoryTickets,
 	rejectFactoryTicket,
 } from '../api';
 import type {
 	CreateFactoryTicketRequest,
+	FactoryRoleGroupView,
 	FactoryTicketView,
 	ListFactoryTicketsParams,
 } from '../api';
@@ -22,8 +24,14 @@ import type {
  */
 export const FACTORY_TICKETS_KEY = ['factory-tickets'];
 
+/** Cache key for the role roster — a catalog, not per-ticket state. */
+export const FACTORY_ROSTER_KEY = ['factory-roster'];
+
 /** Stable empty list, so `tickets` keeps its identity between renders. */
 const NO_TICKETS: FactoryTicketView[] = [];
+
+/** Stable empty list, so `groups` keeps its identity between renders. */
+const NO_GROUPS: FactoryRoleGroupView[] = [];
 
 /**
  * Manages the factory ticket list.
@@ -88,6 +96,31 @@ export function useCreateFactoryTicket() {
 		mutationFn: (body: CreateFactoryTicketRequest) => createFactoryTicket(body),
 		onSuccess: () => queryClient.invalidateQueries({ queryKey: FACTORY_TICKETS_KEY }),
 	});
+}
+
+/**
+ * The factory's role roster from `GET /factory/roles`.
+ *
+ * Compiled into the server, so the catalog cannot change while it is
+ * up — hence `staleTime: Infinity`, the presets pattern: every
+ * dialog and page that needs the team reads the one cached fetch.
+ *
+ * @returns The role groups (in phase order) plus the judge, and
+ *   `loading` / `error` flags.
+ */
+export function useFactoryRoster() {
+	const { data, isPending, error } = useQuery({
+		queryKey: FACTORY_ROSTER_KEY,
+		queryFn: getFactoryRoles,
+		staleTime: Infinity,
+	});
+
+	return {
+		groups: data?.groups ?? NO_GROUPS,
+		judge: data?.judge ?? null,
+		loading: isPending,
+		error: error as Error | null,
+	};
 }
 
 /**

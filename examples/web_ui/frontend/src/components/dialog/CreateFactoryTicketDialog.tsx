@@ -1,10 +1,15 @@
-import { Plus } from 'lucide-react';
+import { ChevronDown, Plus } from 'lucide-react';
 import * as React from 'react';
 import { toast } from 'sonner';
 
-import type { ChatModelConfig, FactoryMode } from '@/api';
+import type { ChatModelConfig, FactoryMode, FactoryRoleGroupView, FactoryRoleView } from '@/api';
 import { LlmSelect } from '@/components/select/LlmSelect';
 import { Button } from '@/components/ui/button';
+import {
+	Collapsible,
+	CollapsibleContent,
+	CollapsibleTrigger,
+} from '@/components/ui/collapsible';
 import {
 	Dialog,
 	DialogContent,
@@ -17,14 +22,119 @@ import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
-import { useCreateFactoryTicket } from '@/hooks/useFactoryTickets';
+import { useCreateFactoryTicket, useFactoryRoster } from '@/hooks/useFactoryTickets';
 import { useTranslation } from '@/i18n/useI18n';
+import { cn } from '@/lib/utils';
 
 interface Props {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	/** Called with the new ticket's id once a create succeeds. */
 	onCreated?: (ticketId: string) => void;
+}
+
+/**
+ * One roster group as the dialog shows it: the group's title with a
+ * count chip, then its roles as chips — clicking a chip unfolds that
+ * role's stance underneath. Stances come straight from the catalog;
+ * only the chrome around them is translated.
+ */
+function RosterGroup({
+	group,
+	expanded,
+	onToggle,
+}: {
+	group: FactoryRoleGroupView;
+	expanded: string | null;
+	onToggle: (key: string) => void;
+}) {
+	return (
+		<div className="space-y-1.5">
+			<div className="flex items-center gap-2">
+				<span className="text-xs font-semibold">{group.title}</span>
+				<span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+					{group.roles.length}
+				</span>
+			</div>
+			<div className="flex flex-wrap gap-1.5">
+				{group.roles.map((role) => {
+					const key = `${group.phase}:${role.name}`;
+					const open = expanded === key;
+					return (
+						<button
+							key={key}
+							type="button"
+							aria-pressed={open}
+							className={cn(
+								'rounded-full border px-2.5 py-0.5 text-xs transition-colors',
+								open
+									? 'border-primary bg-primary/10 text-primary'
+									: 'border-border text-muted-foreground hover:text-foreground',
+							)}
+							onClick={() => onToggle(key)}
+						>
+							{role.title}
+						</button>
+					);
+				})}
+			</div>
+			{group.roles.map((role) => {
+				const key = `${group.phase}:${role.name}`;
+				return expanded === key ? (
+					<p
+						key={key}
+						className="rounded bg-muted/50 p-2 text-xs leading-relaxed break-words whitespace-pre-wrap text-muted-foreground"
+					>
+						{role.stance}
+					</p>
+				) : null;
+			})}
+		</div>
+	);
+}
+
+/**
+ * The "Agents involved" section: the whole roster — every group's
+ * roles, with the judge noted under the two discussion groups — so
+ * the user knows the team before opening the ticket.
+ */
+function AgentsInvolvedSection({
+	groups,
+	judge,
+}: {
+	groups: FactoryRoleGroupView[];
+	judge: FactoryRoleView | null;
+}) {
+	const { t } = useTranslation();
+	const [open, setOpen] = React.useState(false);
+	const [expanded, setExpanded] = React.useState<string | null>(null);
+
+	const toggle = (key: string) =>
+		setExpanded((current) => (current === key ? null : key));
+
+	return (
+		<Collapsible open={open} onOpenChange={setOpen}>
+			<CollapsibleTrigger className="flex w-full items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground">
+				<ChevronDown className="size-4 transition-transform data-[state=open]:rotate-180" />
+				{t('factory.roster.title')}
+			</CollapsibleTrigger>
+			<CollapsibleContent className="mt-3 space-y-3">
+				{groups.map((group) => (
+					<React.Fragment key={group.phase}>
+						<RosterGroup group={group} expanded={expanded} onToggle={toggle} />
+						{/* The judge arbitrates both debates, so it is noted
+						    right after the second discussion group. */}
+						{group.phase === 'ARCHITECTURE' && judge != null && (
+							<p className="text-xs leading-relaxed break-words text-muted-foreground">
+								{t('factory.roster.judgeShared', { title: judge.title })} —{' '}
+								{judge.stance}
+							</p>
+						)}
+					</React.Fragment>
+				))}
+			</CollapsibleContent>
+		</Collapsible>
+	);
 }
 
 /**
@@ -36,6 +146,7 @@ interface Props {
 export function CreateFactoryTicketDialog({ open, onOpenChange, onCreated }: Props) {
 	const { t } = useTranslation();
 	const create = useCreateFactoryTicket();
+	const roster = useFactoryRoster();
 
 	const [title, setTitle] = React.useState('');
 	const [description, setDescription] = React.useState('');
@@ -133,6 +244,20 @@ export function CreateFactoryTicketDialog({ open, onOpenChange, onCreated }: Pro
 								: t('factory.create.modeDelegatedHint')}
 						</p>
 					</Field>
+
+					{/* The team preview is supplementary: it stays hidden
+					    while the roster loads and degrades to a muted note
+					    when it cannot load — the ticket itself is fine. */}
+					{!roster.loading &&
+						(roster.error ? (
+							<p className="text-xs text-muted-foreground">
+								{t('factory.roster.loadFailed')}
+							</p>
+						) : (
+							<Field>
+								<AgentsInvolvedSection groups={roster.groups} judge={roster.judge} />
+							</Field>
+						))}
 				</FieldGroup>
 
 				<DialogFooter>

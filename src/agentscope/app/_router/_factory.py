@@ -14,10 +14,14 @@ from ..storage import (
     StorageBase,
 )
 from .._service import FactoryEngine
+from .._service.factory._roles import JUDGE_ROLE, factory_roster
 from ._schema import (
     ApproveTicketRequest,
     CreateFactoryTicketRequest,
     CreateFactoryTicketResponse,
+    FactoryRoleGroupView,
+    FactoryRoleView,
+    FactoryRosterResponse,
     FactoryTicketDetailResponse,
     FactoryTicketView,
     ListFactoryTicketsResponse,
@@ -162,6 +166,34 @@ async def list_factory_tickets(
     return ListFactoryTicketsResponse(
         tickets=views,
         total=len(views),
+    )
+
+
+# Declared before the ``/{ticket_id}`` routes, like the presets listing
+# in the MCP router: a literal path segment must not risk being
+# captured as someone's ticket id.
+@factory_router.get(
+    "/roles",
+    response_model=FactoryRosterResponse,
+    summary="Read the agent roster",
+)
+async def get_factory_roles() -> FactoryRosterResponse:
+    """Return the factory's static role catalog: every phase's roles
+    and the judge both debate phases share.
+
+    Compiled catalog data with nothing per-user in it — the role
+    groups themselves, not any ticket's state — so it takes no user,
+    no storage and no engine, exactly like the MCP presets listing.
+
+    Returns:
+        `FactoryRosterResponse`:
+            The role groups in phase order, plus the judge.
+    """
+    return FactoryRosterResponse(
+        groups=[
+            FactoryRoleGroupView(**group) for group in factory_roster()
+        ],
+        judge=FactoryRoleView(**JUDGE_ROLE),
     )
 
 

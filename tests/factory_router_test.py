@@ -33,8 +33,14 @@ from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
 from agentscope.app import create_app
+from agentscope.app._router._factory import factory_router
 from agentscope.app._router._schema import FactoryTicketView
 from agentscope.app._service.factory import FactoryEngine
+from agentscope.app._service.factory._roles import (
+    ARCHITECTURE_ROLES,
+    REQUIREMENTS_ROLES,
+    to_debaters,
+)
 from agentscope.app.message_bus import RedisMessageBus
 from agentscope.app.storage import (
     ChatModelConfig,
@@ -639,12 +645,82 @@ class FactoryRouterTest(IsolatedAsyncioTestCase):
         self.assertIn("/factory/", paths)
         self.assertIn("post", paths["/factory/"])
         self.assertIn("get", paths["/factory/"])
+        self.assertIn("/factory/roles", paths)
+        self.assertIn("get", paths["/factory/roles"])
         self.assertIn("/factory/{ticket_id}", paths)
         self.assertIn("get", paths["/factory/{ticket_id}"])
         for verb in ("approve", "reject", "cancel"):
             path = f"/factory/{{ticket_id}}/{verb}"
             self.assertIn(path, paths)
             self.assertIn("post", paths[path])
+
+    def test_roles_returns_the_roster_catalog(self) -> None:
+        """GET /factory/roles returns the static catalog: three groups
+        in phase order with 3/6/3 roles, every role carrying a name, a
+        title and a stance, plus the shared judge."""
+        response = self._client.get("/factory/roles", headers=HEADERS)
+        self.assertEqual(response.status_code, 200, response.text)
+        roster = response.json()
+        groups = roster["groups"]
+        self.assertEqual(
+            [group["phase"] for group in groups],
+            ["REQUIREMENTS", "ARCHITECTURE", "DEVELOP"],
+        )
+        self.assertEqual(
+            [len(group["roles"]) for group in groups],
+            [3, 6, 3],
+        )
+        for group in groups:
+            self.assertTrue(group["title"])
+            self.assertTrue(group["description"])
+            for role in group["roles"]:
+                self.assertTrue(role["name"])
+                self.assertTrue(role["title"])
+                self.assertTrue(role["stance"])
+        judge = roster["judge"]
+        self.assertTrue(judge["name"])
+        self.assertTrue(judge["title"])
+        self.assertTrue(judge["stance"])
+
+    def test_roles_route_is_never_shadowed_by_the_ticket_id_route(
+        self,
+    ) -> None:
+        """/factory/roles answers as the roster — a 200 carrying
+        ``groups`` — and not as a 404 lookup of a ticket named
+        "roles", because the fixed segment is registered before the
+        ``/{ticket_id}`` routes (order-dependent matching)."""
+        response = self._client.get("/factory/roles", headers=HEADERS)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertIn("groups", response.json())
+        paths = [route.path for route in factory_router.routes]
+        self.assertIn("/factory/roles", paths)
+        self.assertIn("/factory/{ticket_id}", paths)
+        self.assertLess(
+            paths.index("/factory/roles"),
+            paths.index("/factory/{ticket_id}"),
+        )
+
+    def test_roster_matches_what_the_engine_dispatches(self) -> None:
+        """The catalog the roster shows is the catalog the engine runs:
+        each debate group's role names are exactly the debater names
+        ``to_debaters`` sends, in order — the catalog↔runtime pin."""
+        groups = self._client.get(
+            "/factory/roles",
+            headers=HEADERS,
+        ).json()["groups"]
+        model = ChatModelConfig(**self._model())
+        for group, catalog in (
+            (groups[0], REQUIREMENTS_ROLES),
+            (groups[1], ARCHITECTURE_ROLES),
+        ):
+            with self.subTest(group["phase"]):
+                self.assertEqual(
+                    [role["name"] for role in group["roles"]],
+                    [
+                        debater.name
+                        for debater in to_debaters(catalog, model)
+                    ],
+                )
 
 
 class FactoryLifespanWiringTest(IsolatedAsyncioTestCase):

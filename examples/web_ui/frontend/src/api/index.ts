@@ -72,6 +72,7 @@ export {
 	createFactoryTicket,
 	listFactoryTickets,
 	getFactoryTicket,
+	getFactoryRoles,
 	approveFactoryTicket,
 	rejectFactoryTicket,
 	cancelFactoryTicket,
@@ -89,6 +90,9 @@ export type {
 	ListFactoryTicketsParams,
 	ListFactoryTicketsResponse,
 	FactoryTicketDetailResponse,
+	FactoryRoleView,
+	FactoryRoleGroupView,
+	FactoryRosterResponse,
 } from './factory';
 export { embeddingModelApi, modelApi, realtimeModelApi, ttsModelApi } from './model';
 export { realtimeApi } from './realtime';

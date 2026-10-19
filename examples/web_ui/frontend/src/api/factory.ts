@@ -118,6 +118,39 @@ export interface FactoryTicketDetailResponse {
 	data: FactoryTicketView;
 }
 
+/** One factory role, as the roster shows it. Mirrors `FactoryRoleView`. */
+export interface FactoryRoleView {
+	/** The role's agent-safe name — the name it runs under. */
+	name: string;
+	/** The role's display title. */
+	title: string;
+	/** What the role argues for (debates) or does (development). */
+	stance: string;
+}
+
+/** One phase's roles, as the roster shows it. Mirrors `FactoryRoleGroupView`. */
+export interface FactoryRoleGroupView {
+	/** The phase the group serves. */
+	phase: FactoryPhase;
+	/** The group's display title. */
+	title: string;
+	/** One line: what the group produces. */
+	description: string;
+	/** The group's roles, in speaking order. */
+	roles: FactoryRoleView[];
+}
+
+/**
+ * The factory's whole team, as the roster shows it — the static role
+ * catalog every ticket runs, plus the judge both debates share.
+ */
+export interface FactoryRosterResponse {
+	/** The role groups, in phase order. */
+	groups: FactoryRoleGroupView[];
+	/** The judge both debate phases share. */
+	judge: FactoryRoleView;
+}
+
 /**
  * Factory statuses no further transition can follow — the client
  * mirror of the engine's terminal set. Views poll a ticket only while
@@ -146,6 +179,15 @@ export function listFactoryTickets(params?: ListFactoryTicketsParams) {
 /** Read one ticket's persisted state. */
 export function getFactoryTicket(ticketId: string) {
 	return client.get<FactoryTicketDetailResponse>(`/factory/${ticketId}`);
+}
+
+/**
+ * Read the factory's static role catalog: every phase's roles plus
+ * the judge both debate phases share. Static for the server's
+ * lifetime, so callers cache it like the MCP presets.
+ */
+export function getFactoryRoles() {
+	return client.get<FactoryRosterResponse>('/factory/roles');
 }
 
 /**

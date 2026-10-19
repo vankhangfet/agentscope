@@ -8,8 +8,17 @@ whichever topic the ticket brings is the domain. Debate roles become
 debaters through :func:`to_debaters`; the phase-3 development roles
 (Plan Lead, Developer, Reviewer) are plain prompts for the agent
 turns that break down and execute the work.
+
+The roster projections (:data:`ROLE_TITLES`, :data:`DEVELOPMENT_ROLES`
+and :func:`factory_roster`) surface the very same catalog for display
+— titles and per-role stances for humans — without touching what
+runs: every debate still goes through the groups and prompts above.
 """
-from ...storage import ChatModelConfig, DebaterConfig
+from ...storage import (
+    ChatModelConfig,
+    DebaterConfig,
+    FactoryPhase,
+)
 
 ROLE_GROUP = tuple[tuple[str, str], ...]
 """One phase's debate roles, in speaking order: each entry a
@@ -118,6 +127,86 @@ REVIEWER_PROMPT = (
     "the exact reasons."
 )
 
+ROLE_TITLES: dict[str, str] = {
+    "product_owner": "Product Owner",
+    "business_analyst": "Business Analyst",
+    "requirement_reviewer": "Requirement Reviewer",
+    "solution_architect": "Solution Architect",
+    "cloud_architect": "Cloud Architect",
+    "performance_reviewer": "Performance Reviewer",
+    "security_reviewer": "Security Reviewer",
+    "cost_reviewer": "Cost Reviewer",
+    "design_reviewer": "Design Reviewer",
+    "plan_lead": "Plan Lead",
+    "developer": "Developer",
+    "reviewer": "Reviewer",
+}
+"""Every role name → the display title the roster shows."""
+
+DEVELOPMENT_ROLES: ROLE_GROUP = (
+    (
+        "plan_lead",
+        "Breaks the approved requirements and architecture into a "
+        "short, strictly ordered list of small, independently "
+        "checkable tasks. Planning is the whole job — the Plan Lead "
+        "never starts a task itself.",
+    ),
+    (
+        "developer",
+        "Implements exactly one task at a time in the ticket's "
+        "workspace, changing only what the task needs and verifying "
+        "the work by running it.",
+    ),
+    (
+        "reviewer",
+        "Reviews the development against the tasks it claims to "
+        "finish — correctness, completeness, risk — and ends with a "
+        "clear verdict: approve, or request changes.",
+    ),
+)
+"""The DEVELOP phase's roles for display. Their turn prompts above
+(:data:`PLAN_LEAD_PROMPT`, :data:`DEVELOPER_PROMPT`,
+:data:`REVIEWER_PROMPT`) instruct a single agent turn each; these
+stances instead describe the role's job, which is what a roster
+reader wants. The ``developer`` covers the per-task
+``developer_N`` sessions."""
+
+JUDGE_ROLE: dict = {
+    "name": "judge",
+    "title": "Judge",
+    "stance": (
+        "Scores every round's arguments and watches for genuine "
+        "agreement between the roles. A debate concludes when "
+        "consensus is detected — never forced."
+    ),
+}
+"""The judge both debate phases share, as the roster shows it. The
+name mirrors the discussion engine's judge key."""
+
+_GROUP_SPECS: tuple[tuple[FactoryPhase, str, str, ROLE_GROUP], ...] = (
+    (
+        FactoryPhase.REQUIREMENTS,
+        "Requirements debate",
+        "Argues the problem into testable requirements.",
+        REQUIREMENTS_ROLES,
+    ),
+    (
+        FactoryPhase.ARCHITECTURE,
+        "Architecture debate",
+        "Argues the system's shape, stack and trade-offs.",
+        ARCHITECTURE_ROLES,
+    ),
+    (
+        FactoryPhase.DEVELOP,
+        "Development",
+        "Breaks the approved design into tasks, then builds and "
+        "reviews each one.",
+        DEVELOPMENT_ROLES,
+    ),
+)
+"""The roster's groups in phase order: phase, title, one-line
+description and the role group the phase runs."""
+
 
 def to_debaters(
     roles: ROLE_GROUP,
@@ -146,4 +235,34 @@ def to_debaters(
             chat_model_config=model,
         )
         for name, stance in roles
+    ]
+
+
+def factory_roster() -> list[dict]:
+    """Project the whole catalog as the roster the API serves.
+
+    Pure data in phase order: one dict per group — its phase, title,
+    description and its roles as ``{name, title, stance}`` view dicts,
+    each stance taken verbatim from the group the engine runs and each
+    title from :data:`ROLE_TITLES`. The judge is served separately as
+    :data:`JUDGE_ROLE` because both debate phases share it.
+
+    Returns:
+        `list[dict]`: The role groups, in phase order.
+    """
+    return [
+        {
+            "phase": phase,
+            "title": title,
+            "description": description,
+            "roles": [
+                {
+                    "name": name,
+                    "title": ROLE_TITLES[name],
+                    "stance": stance,
+                }
+                for name, stance in roles
+            ],
+        }
+        for phase, title, description, roles in _GROUP_SPECS
     ]
