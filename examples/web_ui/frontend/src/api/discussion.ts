@@ -58,3 +58,13 @@ export function rerunDiscussion(discussionId: string) {
 		null,
 	);
 }
+
+/**
+ * Delete a discussion with everything its run created: the engine
+ * cancels a still-live debate first, then removes the participant
+ * agents (with their sessions and message logs) and the record
+ * itself. Answers 204; 404 when the caller owns no such discussion.
+ */
+export function deleteDiscussion(discussionId: string) {
+	return client.delete(`/discussion/${discussionId}`);
+}

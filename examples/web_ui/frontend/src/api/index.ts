@@ -66,6 +66,7 @@ export {
 	getDiscussion,
 	cancelDiscussion,
 	rerunDiscussion,
+	deleteDiscussion,
 } from './discussion';
 export {
 	FACTORY_TERMINAL_STATUSES,

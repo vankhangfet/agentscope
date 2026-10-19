@@ -1,6 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
-import { MessagesSquare, Plus } from 'lucide-react';
+import { Ellipsis, MessagesSquare, Plus, Trash2 } from 'lucide-react';
 import * as React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
@@ -8,7 +8,14 @@ import { DiscussionStatusBadge } from './components/DiscussionStatusBadge';
 import { DISCUSSION_TERMINAL_STATUSES } from '@/api';
 import type { Discussion } from '@/api';
 import { CreateDiscussionDialog } from '@/components/dialog/CreateDiscussionDialog';
+import { DeleteDialog } from '@/components/dialog/DeleteDialog';
 import { Button } from '@/components/ui/button';
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import {
 	Empty,
 	EmptyContent,
@@ -27,14 +34,27 @@ import {
 	TableHeader,
 	TableRow,
 } from '@/components/ui/table';
-import { DISCUSSIONS_KEY, useDiscussions } from '@/hooks/useDiscussions';
+import {
+	DISCUSSIONS_KEY,
+	useDeleteDiscussion,
+	useDiscussions,
+} from '@/hooks/useDiscussions';
 import { useTranslation } from '@/i18n/useI18n';
 
 /**
  * One discussion row: topic, status chip, debater count, rounds against
- * the ceiling, updated time. Anywhere on the row opens the live view.
+ * the ceiling, updated time. Anywhere on the row opens the live view;
+ * the trailing "…" menu holds the row's destructive actions.
  */
-function DiscussionRow({ discussion, onOpen }: { discussion: Discussion; onOpen: () => void }) {
+function DiscussionRow({
+	discussion,
+	onOpen,
+	onDelete,
+}: {
+	discussion: Discussion;
+	onOpen: () => void;
+	onDelete: () => void;
+}) {
 	const { t } = useTranslation();
 	const { data } = discussion;
 	return (
@@ -63,6 +83,29 @@ function DiscussionRow({ discussion, onOpen }: { discussion: Discussion; onOpen:
 			<TableCell className="px-4 py-2.5 font-mono text-[11px] text-text-secondary">
 				{format(new Date(discussion.updated_at), 'yyyy-MM-dd HH:mm')}
 			</TableCell>
+			<TableCell className="px-4 py-2.5">
+				<DropdownMenu>
+					<DropdownMenuTrigger asChild>
+						<Button
+							variant="ghost"
+							size="icon-sm"
+							className="text-text-tertiary hover:text-foreground"
+							aria-label={t('discussion.list.actions.menu')}
+							// The row click already routes; keep the
+							// menu from firing the same navigation.
+							onClick={(e) => e.stopPropagation()}
+						>
+							<Ellipsis />
+						</Button>
+					</DropdownMenuTrigger>
+					<DropdownMenuContent align="end">
+						<DropdownMenuItem variant="destructive" onClick={onDelete}>
+							<Trash2 />
+							{t('common.delete')}
+						</DropdownMenuItem>
+					</DropdownMenuContent>
+				</DropdownMenu>
+			</TableCell>
 		</TableRow>
 	);
 }
@@ -77,6 +120,8 @@ export function DiscussionPage() {
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
 	const [creating, setCreating] = React.useState(false);
+	const [deleteTarget, setDeleteTarget] = React.useState<Discussion | null>(null);
+	const removeDiscussion = useDeleteDiscussion();
 
 	// Poll only while something visible is live: the effect flips the
 	// flag on every fetch, and the final fetch that sees all-terminal
@@ -179,6 +224,8 @@ export function DiscussionPage() {
 											<TableHead className="px-4">
 												{t('discussion.list.table.updated')}
 											</TableHead>
+											{/* The row actions column: the "…" menu. */}
+											<TableHead className="w-10 px-4" />
 										</TableRow>
 									</TableHeader>
 									<TableBody>
@@ -187,6 +234,7 @@ export function DiscussionPage() {
 												key={discussion.id}
 												discussion={discussion}
 												onOpen={() => navigate(`/discussion/${discussion.id}`)}
+												onDelete={() => setDeleteTarget(discussion)}
 											/>
 										))}
 									</TableBody>
@@ -198,6 +246,27 @@ export function DiscussionPage() {
 			</main>
 
 			<CreateDiscussionDialog open={creating} onOpenChange={setCreating} />
+
+			<DeleteDialog
+				open={deleteTarget !== null}
+				onOpenChange={(open) => !open && setDeleteTarget(null)}
+				title={t('common.deleteTitle', {
+					entity: t('discussion.deleteEntity'),
+					name: deleteTarget?.data.topic ?? '',
+				})}
+				description={t('common.deleteDescription')}
+				onConfirm={async () => {
+					if (!deleteTarget) return;
+					const target = deleteTarget;
+					try {
+						await removeDiscussion.mutateAsync(target.id);
+						setDeleteTarget(null);
+					} catch {
+						// The API client already toasted the failure
+						// detail; the dialog stays open for a retry.
+					}
+				}}
+			/>
 		</div>
 	);
 }

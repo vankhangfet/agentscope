@@ -1,6 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { cancelDiscussion, createDiscussion, getDiscussion, listDiscussions, rerunDiscussion } from '../api';
+import {
+	cancelDiscussion,
+	createDiscussion,
+	deleteDiscussion,
+	getDiscussion,
+	listDiscussions,
+	rerunDiscussion,
+} from '../api';
 import type {
 	CreateDiscussionRequest,
 	Discussion,
@@ -105,6 +112,21 @@ export function useCancelDiscussion() {
 	const queryClient = useQueryClient();
 	return useMutation({
 		mutationFn: (discussionId: string) => cancelDiscussion(discussionId),
+		onSuccess: () => queryClient.invalidateQueries({ queryKey: DISCUSSIONS_KEY }),
+	});
+}
+
+/**
+ * Deletes a discussion — cancelling it first when still live, taking
+ * its participant agents and sessions with it — and refreshes the
+ * discussion views. The prefix key covers the detail view too, so a
+ * page still open on the deleted discussion falls back to its
+ * not-found view.
+ */
+export function useDeleteDiscussion() {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: (discussionId: string) => deleteDiscussion(discussionId),
 		onSuccess: () => queryClient.invalidateQueries({ queryKey: DISCUSSIONS_KEY }),
 	});
 }

@@ -11,6 +11,7 @@ prose). ``POST /discussion`` therefore exercises the whole stack —
 router, facade validation, engine, chat service, storage — with no
 network.
 """
+import asyncio
 import json
 import re
 import tempfile
@@ -25,6 +26,7 @@ from pydantic import BaseModel
 from agentscope.app import create_app
 from agentscope.app.message_bus import RedisMessageBus
 from agentscope.app.storage import (
+    AgentRecord,
     ChatModelConfig,
     DebaterConfig,
     DiscussionData,
@@ -92,7 +94,9 @@ class _FakeDiscussionModel(ChatModelBase):
     ``judge-consensus`` — a conclusion ask with conclusion text, and
     anything else with an argument naming the model. A model named
     ``judge-broken`` answers prose to every verdict ask, so its judge
-    degrades and the rounds go unevaluated.
+    degrades and the rounds go unevaluated; one named
+    ``debater-stall`` holds the floor for a minute first, so a test
+    can catch the debate mid-flight.
     """
 
     def __init__(
@@ -139,6 +143,10 @@ class _FakeDiscussionModel(ChatModelBase):
             prompt = message.get_text_content() or ""
             if prompt:
                 break
+        if model_name.startswith("debater-stall"):
+            # A slow provider: the turn holds the floor long enough
+            # for a request to arrive against a live debate.
+            await asyncio.sleep(60)
         if _VERDICT_ASK in prompt:
             text = (
                 "I refuse to answer in JSON."
@@ -331,6 +339,24 @@ class DiscussionRouterTest(IsolatedAsyncioTestCase):
             f"Discussion {discussion_id!r} never reached {statuses}; "
             f"last status {data and data['status']!r}.",
         )
+
+    async def _participants(
+        self,
+        discussion_id: str,
+    ) -> list[tuple[AgentRecord, list[str]]]:
+        """The discussion's participant agents and their session ids.
+
+        Participants are recognised the way the delete cascade does:
+        agents named ``discussion:{id}:{key}`` — one per debater plus
+        the judge.
+        """
+        prefix = f"discussion:{discussion_id}:"
+        owned: list[tuple[AgentRecord, list[str]]] = []
+        for agent in await self._storage.list_agents("alice"):
+            if agent.data.name.startswith(prefix):
+                sessions = await self._storage.list_sessions("alice", agent.id)
+                owned.append((agent, [session.id for session in sessions]))
+        return owned
 
     # --------------------------------------------------------------- tests
 
@@ -584,6 +610,153 @@ class DiscussionRouterTest(IsolatedAsyncioTestCase):
         listed = self._client.get("/discussion/", headers=HEADERS).json()
         self.assertEqual(listed["total"], 2)
 
+    async def test_delete_completed_discussion(self) -> None:
+        """A deleted discussion disappears, participants and all."""
+        discussion_id = self._start()
+        self._poll(discussion_id, {"COMPLETED"})
+        participants = await self._participants(discussion_id)
+        # The finished debate left pro, con and the judge behind, each
+        # with a session holding its turns.
+        self.assertEqual(len(participants), 3)
+        self.assertTrue(all(ids for _agent, ids in participants))
+
+        deleted = self._client.delete(
+            f"/discussion/{discussion_id}",
+            headers=HEADERS,
+        )
+        self.assertEqual(deleted.status_code, 204, deleted.text)
+
+        self.assertEqual(
+            self._client.get(
+                f"/discussion/{discussion_id}",
+                headers=HEADERS,
+            ).status_code,
+            404,
+        )
+        listed = self._client.get("/discussion/", headers=HEADERS).json()
+        self.assertEqual(listed["total"], 0)
+
+        # The cascade took the participants' agents, sessions and
+        # message logs with it.
+        self.assertEqual(await self._participants(discussion_id), [])
+        for agent, session_ids in participants:
+            self.assertIsNone(await self._storage.get_agent("alice", agent.id))
+            self.assertEqual(
+                await self._storage.list_sessions("alice", agent.id),
+                [],
+            )
+            for session_id in session_ids:
+                messages, _cursor = await self._storage.list_messages(
+                    "alice",
+                    session_id,
+                    limit=5,
+                )
+                self.assertEqual(messages, [])
+
+    async def test_delete_running_discussion_settles_the_engine(self) -> None:
+        """Deleting a live debate settles its loop before its record."""
+        discussion_id = self._start(
+            debaters=[
+                self._debater("pro", "debater-stall"),
+                self._debater("con", "debater-con"),
+            ],
+        )
+        self._poll(discussion_id, {"RUNNING"})
+        engine = self._client.app.state.discussion_engine
+        self.assertIn(discussion_id, engine._tasks)
+
+        deleted = self._client.delete(
+            f"/discussion/{discussion_id}",
+            headers=HEADERS,
+        )
+        self.assertEqual(deleted.status_code, 204, deleted.text)
+
+        # The loop settled and its registry drained; nothing about the
+        # engine remembers the discussion.
+        self.assertEqual(engine._tasks, {})
+        self.assertEqual(
+            self._client.post(
+                f"/discussion/{discussion_id}/cancel",
+                headers=HEADERS,
+            ).status_code,
+            404,
+        )
+        self.assertEqual(await self._storage.list_active_discussions(), [])
+        self.assertEqual(await self._participants(discussion_id), [])
+
+    def test_delete_unknown_and_wrong_owner(self) -> None:
+        """Deletes answer 404 on missing ids and foreign records."""
+        self.assertEqual(
+            self._client.delete(
+                "/discussion/missing",
+                headers=HEADERS,
+            ).status_code,
+            404,
+        )
+        discussion_id = self._start()
+        self._poll(discussion_id, {"COMPLETED"})
+        self.assertEqual(
+            self._client.delete(
+                f"/discussion/{discussion_id}",
+                headers={"X-User-ID": "bob"},
+            ).status_code,
+            404,
+        )
+        # Alice's record survived the foreign delete intact.
+        self.assertEqual(
+            self._client.get(
+                f"/discussion/{discussion_id}",
+                headers=HEADERS,
+            ).status_code,
+            200,
+        )
+
+    def test_delete_twice_second_is_404(self) -> None:
+        """A deleted discussion cannot be deleted again."""
+        discussion_id = self._start()
+        self._poll(discussion_id, {"COMPLETED"})
+        self.assertEqual(
+            self._client.delete(
+                f"/discussion/{discussion_id}",
+                headers=HEADERS,
+            ).status_code,
+            204,
+        )
+        self.assertEqual(
+            self._client.delete(
+                f"/discussion/{discussion_id}",
+                headers=HEADERS,
+            ).status_code,
+            404,
+        )
+
+    def test_rerun_after_delete_creates_a_fresh_discussion(self) -> None:
+        """A delete leaves no engine state a later rerun trips over."""
+        source_id = self._start()
+        self._poll(source_id, {"COMPLETED"})
+        first = self._client.post(
+            f"/discussion/{source_id}/rerun",
+            headers=HEADERS,
+        )
+        self.assertEqual(first.status_code, 201, first.text)
+        rerun_id = first.json()["discussion_id"]
+
+        deleted = self._client.delete(
+            f"/discussion/{rerun_id}",
+            headers=HEADERS,
+        )
+        self.assertEqual(deleted.status_code, 204, deleted.text)
+
+        again = self._client.post(
+            f"/discussion/{source_id}/rerun",
+            headers=HEADERS,
+        )
+        self.assertEqual(again.status_code, 201, again.text)
+        fresh_id = again.json()["discussion_id"]
+        self.assertNotIn(fresh_id, {source_id, rerun_id})
+        # The fresh run argues to its own completion.
+        self._poll(fresh_id, {"COMPLETED"})
+
     def test_create_validation_rejections(self) -> None:
         """Structural bounds answer 422 before anything is dispatched."""
         seven = [self._debater(f"d{i}", "m") for i in range(7)]
@@ -624,6 +797,7 @@ class DiscussionRouterTest(IsolatedAsyncioTestCase):
         self.assertIn("get", paths["/discussion/"])
         self.assertIn("/discussion/{discussion_id}", paths)
         self.assertIn("get", paths["/discussion/{discussion_id}"])
+        self.assertIn("delete", paths["/discussion/{discussion_id}"])
         self.assertIn("/discussion/{discussion_id}/cancel", paths)
         self.assertIn("post", paths["/discussion/{discussion_id}/cancel"])
         self.assertIn("/discussion/{discussion_id}/rerun", paths)

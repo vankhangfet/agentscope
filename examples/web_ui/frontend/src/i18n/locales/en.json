@@ -840,6 +840,7 @@
 	},
 	"discussion": {
 		"subtitle": "Multi-agent debates with an impartial judge, round by round",
+		"deleteEntity": "discussion",
 		"status": {
 			"PENDING": "Pending",
 			"RUNNING": "Running",
@@ -865,6 +866,9 @@
 				"debaters": "Debaters",
 				"rounds": "Rounds",
 				"updated": "Updated"
+			},
+			"actions": {
+				"menu": "More actions"
 			}
 		},
 		"create": {
@@ -902,6 +906,7 @@
 			"cancelDescription": "The debate stops where it is and is marked cancelled. This cannot be undone.",
 			"cancelConfirm": "Cancel discussion",
 			"cancelled": "Discussion cancelled",
+			"deleted": "Discussion deleted",
 			"conclusion": "Conclusion",
 			"round": "Round {{round}}",
 			"consensus": "Consensus",

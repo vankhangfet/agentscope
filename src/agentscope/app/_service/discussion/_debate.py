@@ -471,6 +471,81 @@ class DebateEngine:
             )
         return persisted
 
+    async def delete(self, user_id: str, discussion_id: str) -> None:
+        """Delete a discussion with everything its run created.
+
+        A non-terminal discussion is cancelled first: ``cancel``
+        settles the loop task before it returns, and that settled task
+        was the one writer that could resurrect the record after the
+        delete — every engine transition reloads inside :meth:`_mutate`
+        and steps aside from a missing record, and nothing else writes
+        an existing id (create and rerun mint fresh ones). Once no
+        writer remains, the participant agents go — one per name
+        ``discussion:{id}:{key}``, deleted through storage's own
+        cascade (sessions, their message logs, schedule and team
+        refs) — and the record last, so a crash mid-cascade leaves a
+        discussion a retried delete can finish.
+
+        Two races are tolerated rather than won: a 404 out of
+        ``cancel`` means the record vanished between the get above and
+        cancel's persist (a rival delete) — the cascade runs on as
+        the idempotent sweep it is — and ``delete_discussion``
+        answering False after that same get-first means the rival
+        finished first, which also counts as success.
+
+        The participant match is a name prefix, not a parse: agent
+        names are not unique per user, so a hand-made agent whose
+        name happens to start with ``discussion:{id}:`` would be swept
+        too — theoretical only, ids being uuids no user types.
+        Factory tickets keep pointing at the deleted id, but they
+        store it as an inert string; the factory UI degrades to its
+        existing not-found view.
+
+        Args:
+            user_id (`str`): The discussion's owner.
+            discussion_id (`str`): The discussion to delete.
+
+        Raises:
+            `HTTPException`: 404 when the discussion is missing.
+        """
+        record = await self._storage.get_discussion(user_id, discussion_id)
+        if record is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Discussion {discussion_id!r} not found.",
+            )
+        if record.data.status not in _TERMINAL:
+            try:
+                await self.cancel(user_id, discussion_id)
+            except HTTPException as exc:
+                if exc.status_code != status.HTTP_404_NOT_FOUND:
+                    raise
+                # Cancel's two 404s both mean the record vanished
+                # under it. Re-get to tell the paths apart: still
+                # missing, the delete below is an idempotent sweep;
+                # present again (nothing mints colliding ids, so
+                # this is unreachable in practice), the sweep runs
+                # the same way — it deletes only what matches.
+                if (
+                    await self._storage.get_discussion(
+                        user_id,
+                        discussion_id,
+                    )
+                    is not None
+                ):
+                    logger.warning(
+                        "Discussion %r reappeared under a delete; "
+                        "cascading anyway.",
+                        discussion_id,
+                    )
+        prefix = f"discussion:{discussion_id}:"
+        for agent in await self._storage.list_agents(user_id):
+            if agent.data.name.startswith(prefix):
+                await self._storage.delete_agent(user_id, agent.id)
+        # False here is the lost race above — the rival deleted the
+        # record this delete already saw: success, not a failure.
+        await self._storage.delete_discussion(user_id, discussion_id)
+
     async def close(self) -> None:
         """Stop the engine: cancel every live debate loop.
 

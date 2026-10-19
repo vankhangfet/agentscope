@@ -241,9 +241,45 @@ async def rerun_discussion_endpoint(
     return CreateDiscussionResponse(discussion_id=record.id)
 
 
+@discussion_router.delete(
+    "/{discussion_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a discussion",
+)
+async def delete_discussion(
+    discussion_id: str,
+    user_id: str = Depends(get_current_user_id),
+    engine: DebateEngine = Depends(get_discussion_engine),
+) -> None:
+    """Delete one discussion and everything its run created.
+
+    The engine cancels a still-live debate first (settling its loop),
+    then removes the participant agents a run minted — with their
+    sessions and message logs — and the record itself last. Rerunning
+    the deleted discussion afterwards answers 404; nothing of the run
+    lingers anywhere.
+
+    Args:
+        discussion_id (`str`):
+            The discussion to delete.
+        user_id (`str`):
+            Injected authenticated user id; also scopes the lookup, so
+            a caller can only delete their own discussion.
+        engine (`DebateEngine`):
+            Injected discussion engine.
+
+    Raises:
+        `HTTPException`:
+            404 when the caller owns no such discussion.
+    """
+    await engine.delete(user_id, discussion_id)
+
+
 # The detail route stays last: fixed segments precede ``/{discussion_id}``
 # in FastAPI's order-dependent path matching (the workflow router's
-# discipline), and every earlier route here is a fixed segment itself.
+# discipline), and every earlier route here is a fixed segment itself —
+# except the delete, which shares this path but not its method, so it
+# can never shadow the read.
 @discussion_router.get(
     "/{discussion_id}",
     response_model=DiscussionDetailResponse,

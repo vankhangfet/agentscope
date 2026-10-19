@@ -1,5 +1,14 @@
 import { format } from 'date-fns';
-import { ArrowLeft, Ban, MessagesSquare, Pencil, RotateCcw, ScrollText, Star } from 'lucide-react';
+import {
+	ArrowLeft,
+	Ban,
+	MessagesSquare,
+	Pencil,
+	RotateCcw,
+	ScrollText,
+	Star,
+	Trash2,
+} from 'lucide-react';
 import * as React from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -23,7 +32,12 @@ import {
 	EmptyTitle,
 } from '@/components/ui/empty';
 import { Spinner } from '@/components/ui/spinner';
-import { useCancelDiscussion, useDiscussion, useRerunDiscussion } from '@/hooks/useDiscussions';
+import {
+	useCancelDiscussion,
+	useDeleteDiscussion,
+	useDiscussion,
+	useRerunDiscussion,
+} from '@/hooks/useDiscussions';
 import { useTranslation } from '@/i18n/useI18n';
 import { cn } from '@/lib/utils';
 
@@ -176,9 +190,11 @@ export function DiscussionDetailPage() {
 	const { discussionId = '' } = useParams<{ discussionId: string }>();
 	const navigate = useNavigate();
 	const [confirmCancel, setConfirmCancel] = React.useState(false);
+	const [confirmDelete, setConfirmDelete] = React.useState(false);
 	const [editRerunOpen, setEditRerunOpen] = React.useState(false);
 	const cancel = useCancelDiscussion();
 	const rerun = useRerunDiscussion();
+	const removeDiscussion = useDeleteDiscussion();
 
 	// Rerun = clone the config into a fresh discussion server-side, then
 	// jump to it. Edit-&-rerun instead opens the create dialog seeded
@@ -196,18 +212,23 @@ export function DiscussionDetailPage() {
 
 	// Poll only while the debate is live: the effect flips the flag on
 	// every fetch, and the final fetch that sees a terminal status is
-	// itself the last poll. 2s keeps the live speaker bar and the
-	// in-progress argument feeling close to real time without an SSE
-	// stream (that follows later, per the design's non-goals).
+	// itself the last poll. A fetch that ERRORS stops the polling too
+	// — a missing record (deleted, or a dead factory link) must not be
+	// re-asked every 2s forever; the error shell below shows instead.
+	// 2s keeps the live speaker bar and the in-progress argument
+	// feeling close to real time without an SSE stream (that follows
+	// later, per the design's non-goals).
 	const [poll, setPoll] = React.useState(true);
 	const { discussion, error } = useDiscussion(discussionId || null, {
 		refetchInterval: poll ? 2000 : false,
 	});
 	React.useEffect(() => {
 		setPoll(
-			discussion == null || !DISCUSSION_TERMINAL_STATUSES.includes(discussion.status),
+			!error &&
+				(discussion == null ||
+					!DISCUSSION_TERMINAL_STATUSES.includes(discussion.status)),
 		);
-	}, [discussion]);
+	}, [discussion, error]);
 
 	// ─── Entrance animation ──────────────────────────────────────────
 	//
@@ -345,6 +366,17 @@ export function DiscussionDetailPage() {
 									<Pencil />
 									{t('discussion.edit.rerun.action')}
 								</Button>
+								{/* Delete sits last and destructive: it takes the
+								    record and the participants with it, while
+								    rerun/edit only ever read this record. */}
+								<Button
+									variant="destructive"
+									size="sm"
+									onClick={() => setConfirmDelete(true)}
+								>
+									<Trash2 />
+									{t('common.delete')}
+								</Button>
 							</>
 						)}
 					</div>
@@ -429,6 +461,27 @@ export function DiscussionDetailPage() {
 					try {
 						await cancel.mutateAsync(discussionId);
 						toast.success(t('discussion.detail.cancelled'));
+					} catch {
+						// The API client already toasted the failure detail.
+					}
+				}}
+			/>
+
+			{/* Delete: the record and its participants go together; on
+			    success nothing of this discussion remains to view. */}
+			<DeleteDialog
+				open={confirmDelete}
+				onOpenChange={setConfirmDelete}
+				title={t('common.deleteTitle', {
+					entity: t('discussion.deleteEntity'),
+					name: discussion.topic,
+				})}
+				description={t('common.deleteDescription')}
+				onConfirm={async () => {
+					try {
+						await removeDiscussion.mutateAsync(discussionId);
+						toast.success(t('discussion.detail.deleted'));
+						navigate('/discussion');
 					} catch {
 						// The API client already toasted the failure detail.
 					}

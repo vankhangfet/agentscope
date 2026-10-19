@@ -840,6 +840,7 @@
 	},
 	"discussion": {
 		"subtitle": "多智能体辩论，配中立裁判逐轮评判",
+		"deleteEntity": "讨论",
 		"status": {
 			"PENDING": "等待中",
 			"RUNNING": "运行中",
@@ -865,6 +866,9 @@
 				"debaters": "辩手",
 				"rounds": "轮次",
 				"updated": "更新时间"
+			},
+			"actions": {
+				"menu": "更多操作"
 			}
 		},
 		"create": {
@@ -902,6 +906,7 @@
 			"cancelDescription": "辩论将立即停止并标记为已取消。此操作无法撤销。",
 			"cancelConfirm": "取消讨论",
 			"cancelled": "讨论已取消",
+			"deleted": "讨论已删除",
 			"conclusion": "结论",
 			"round": "第 {{round}} 轮",
 			"consensus": "达成一致",

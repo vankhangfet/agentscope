@@ -250,6 +250,48 @@ async def _drive(
     return done
 
 
+class _RivalDeletedStorage:
+    """A storage staging a rival delete that won the opening get.
+
+    The first read of the wrapped discussion still finds the record;
+    every later read finds nothing, and the final delete answers
+    False — exactly what the engine sees when a concurrent delete
+    removed the record between its own opening get and cancel's
+    persist. Everything else delegates untouched.
+    """
+
+    def __init__(self, storage: RedisStorage, discussion_id: str) -> None:
+        self._storage = storage
+        self._discussion_id = discussion_id
+        self._read_once = False
+
+    async def get_discussion(
+        self,
+        user_id: str,
+        discussion_id: str,
+    ) -> DiscussionRecord | None:
+        """The record on first read, gone on every later one."""
+        if discussion_id != self._discussion_id:
+            return await self._storage.get_discussion(user_id, discussion_id)
+        if self._read_once:
+            return None
+        self._read_once = True
+        return await self._storage.get_discussion(user_id, discussion_id)
+
+    async def delete_discussion(
+        self,
+        user_id: str,
+        discussion_id: str,
+    ) -> bool:
+        """False for the staged discussion — the rival took it."""
+        if discussion_id == self._discussion_id:
+            return False
+        return await self._storage.delete_discussion(user_id, discussion_id)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._storage, name)
+
+
 class DebateEngineTest(IsolatedAsyncioTestCase):
     """Rounds, stop conditions, failures, cancel, recovery."""
 
@@ -612,6 +654,94 @@ class DebateEngineTest(IsolatedAsyncioTestCase):
         done = await storage.get_discussion(USER, saved.id)
         assert done is not None
         self.assertIs(done.data.status, DiscussionStatus.RUNNING)
+
+    async def test_delete_completed_cascades_participants(self) -> None:
+        """Deleting a finished debate takes its participants with it."""
+        storage, runner = await self._make()
+        done = await _drive(_record(max_rounds=1), runner)
+        engine = DebateEngine(storage, runner)
+
+        prefix = f"discussion:{done.id}:"
+        agents = [
+            agent
+            for agent in await storage.list_agents(USER)
+            if agent.data.name.startswith(prefix)
+        ]
+        # pro, con and the judge each left an agent behind.
+        self.assertEqual(len(agents), 3)
+        sessions = {
+            agent.id: await storage.list_sessions(USER, agent.id)
+            for agent in agents
+        }
+        self.assertTrue(
+            all(sessions_of_agent for sessions_of_agent in sessions.values()),
+        )
+
+        await engine.delete(USER, done.id)
+
+        self.assertIsNone(await storage.get_discussion(USER, done.id))
+        self.assertEqual(
+            [
+                agent
+                for agent in await storage.list_agents(USER)
+                if agent.data.name.startswith(prefix)
+            ],
+            [],
+        )
+        for agent_id, owned in sessions.items():
+            self.assertIsNone(await storage.get_agent(USER, agent_id))
+            self.assertEqual(await storage.list_sessions(USER, agent_id), [])
+        # Terminal before it went, so the active index drained with it.
+        self.assertEqual(await storage.list_active_discussions(), [])
+
+    async def test_delete_running_settles_the_loop_first(self) -> None:
+        """A live debate is cancelled — settled — before it goes."""
+        storage, runner = await self._make()
+        saved = await storage.upsert_discussion(
+            USER,
+            _record(status=DiscussionStatus.RUNNING),
+        )
+        engine = DebateEngine(storage, runner)
+        # A live loop task under the discussion id, registered the way
+        # dispatch registers one (task plus its forget-callback).
+        task = asyncio.create_task(asyncio.sleep(3600))
+        engine._tasks[saved.id] = task
+        task.add_done_callback(
+            lambda done, did=saved.id: engine._forget_task(did, done),
+        )
+
+        await engine.delete(USER, saved.id)
+
+        # The loop settled and was forgotten: no writer remains that
+        # could resurrect the record after the delete.
+        self.assertEqual(engine._tasks, {})
+        self.assertTrue(task.done())
+        self.assertIsNone(await storage.get_discussion(USER, saved.id))
+        self.assertEqual(await storage.list_active_discussions(), [])
+
+    async def test_delete_missing_discussion_404s(self) -> None:
+        storage, runner = await self._make()
+        engine = DebateEngine(storage, runner)
+        with self.assertRaises(HTTPException) as caught:
+            await engine.delete(USER, "nope")
+        self.assertEqual(caught.exception.status_code, 404)
+
+    async def test_delete_tolerates_a_rival_winning_the_race(self) -> None:
+        """A record vanishing under the cancel still counts as deleted."""
+        storage, runner = await self._make()
+        saved = await storage.upsert_discussion(
+            USER,
+            _record(status=DiscussionStatus.RUNNING),
+        )
+        engine = DebateEngine(
+            _RivalDeletedStorage(storage, saved.id),
+            runner,
+        )
+
+        # Cancel inside reads a vanished record and 404s; the delete
+        # swallows it, sweeps the (empty) participant set and treats
+        # the final False as the rival's success — no raise, anywhere.
+        await engine.delete(USER, saved.id)
 
 
 class ParticipantSessionsTest(IsolatedAsyncioTestCase):
