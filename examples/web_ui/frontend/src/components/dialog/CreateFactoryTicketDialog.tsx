@@ -3,6 +3,7 @@ import * as React from 'react';
 import { toast } from 'sonner';
 
 import type { ChatModelConfig, FactoryMode, FactoryRoleGroupView, FactoryRoleView } from '@/api';
+import { AgentAvatar } from '@/components/agent/AgentAvatar';
 import { LlmSelect } from '@/components/select/LlmSelect';
 import { Button } from '@/components/ui/button';
 import {
@@ -65,14 +66,16 @@ function RosterGroup({
 							key={key}
 							type="button"
 							aria-pressed={open}
+							title={role.stance}
 							className={cn(
-								'rounded-full border px-2.5 py-0.5 text-xs transition-colors',
+								'flex items-center gap-1.5 rounded-full border py-0.5 pr-2.5 pl-1 text-xs transition-colors',
 								open
 									? 'border-primary bg-primary/10 text-primary'
 									: 'border-border text-muted-foreground hover:text-foreground',
 							)}
 							onClick={() => onToggle(key)}
 						>
+							<AgentAvatar name={role.name} size="sm" />
 							{role.title}
 						</button>
 					);

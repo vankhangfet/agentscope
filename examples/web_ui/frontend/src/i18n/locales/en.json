@@ -912,6 +912,7 @@
 		},
 		"live": {
 			"live": "Live",
+			"speaking": "speaking…",
 			"debaterSpeaking": "is making their argument…",
 			"debaterWaiting": "Writing the argument…",
 			"judgeName": "Judge",

@@ -32,6 +32,7 @@ import type {
 	FactoryTask,
 	FactoryTaskStatus,
 } from '@/api';
+import { AgentAvatar } from '@/components/agent/AgentAvatar';
 import { DeleteDialog } from '@/components/dialog/DeleteDialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -89,9 +90,11 @@ function DiscussionLink({ discussionId }: { discussionId: string }) {
 }
 
 /**
- * One phase's role chips: the group's roles as small titles, each
- * carrying its stance as a native tooltip. The full stances live one
- * section down, in the agent roster panel.
+ * One phase's role chips: the group's roles as avatar-chips — each
+ * role's `AgentAvatar` (its semantic icon, since the roster names are
+ * the avatar's role keys) beside its title, carrying its stance as a
+ * native tooltip. The full stances live one section down, in the agent
+ * roster panel.
  */
 function RoleChips({ roles }: { roles: FactoryRoleView[] }) {
 	return (
@@ -100,8 +103,9 @@ function RoleChips({ roles }: { roles: FactoryRoleView[] }) {
 				<span
 					key={role.name}
 					title={role.stance}
-					className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground"
+					className="flex items-center gap-1.5 rounded-full border border-border py-0.5 pr-2.5 pl-1 text-[11px] text-muted-foreground"
 				>
+					<AgentAvatar name={role.name} size="sm" />
 					{role.title}
 				</span>
 			))}
@@ -153,11 +157,14 @@ function AgentRosterPanel({
 									<p className="text-xs text-muted-foreground">{group.description}</p>
 									<div className="space-y-2">
 										{group.roles.map((role) => (
-											<div key={role.name}>
-												<div className="text-xs font-medium">{role.title}</div>
-												<p className="text-xs leading-relaxed break-words whitespace-pre-wrap text-muted-foreground">
-													{role.stance}
-												</p>
+											<div key={role.name} className="flex items-start gap-2">
+												<AgentAvatar name={role.name} size="sm" />
+												<div className="min-w-0">
+													<div className="text-xs font-medium">{role.title}</div>
+													<p className="text-xs leading-relaxed break-words whitespace-pre-wrap text-muted-foreground">
+														{role.stance}
+													</p>
+												</div>
 											</div>
 										))}
 									</div>
@@ -166,6 +173,7 @@ function AgentRosterPanel({
 							{judge != null && (
 								<div className="space-y-1.5 border-t border-border pt-3">
 									<div className="flex items-center gap-2">
+										<AgentAvatar name={judge.name} size="sm" />
 										<span className="text-xs font-semibold">{judge.title}</span>
 									</div>
 									<p className="text-xs leading-relaxed break-words whitespace-pre-wrap text-muted-foreground">

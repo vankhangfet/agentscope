@@ -1,9 +1,8 @@
-import { Scale, Users } from 'lucide-react';
+import { Users } from 'lucide-react';
 
 import type { DiscussionData } from '@/api';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { AgentAvatar } from '@/components/agent/AgentAvatar';
 import { useTranslation } from '@/i18n/useI18n';
-import { avatarTint } from '@/utils/common';
 
 /** The model label for a chat-model config: its `model`, or a dash. */
 function modelLabel(config: { model?: string } | null | undefined): string {
@@ -41,14 +40,7 @@ export function DiscussionSetupPanel({ discussion }: { discussion: DiscussionDat
 						className="flex flex-col gap-1.5 rounded-lg border border-border bg-background/60 p-3"
 					>
 						<div className="flex items-center gap-2">
-							<Avatar className="size-6 shrink-0">
-								<AvatarFallback
-									style={avatarTint(debater.name)}
-									className="text-[10px] font-semibold"
-								>
-									{debater.name.slice(0, 1).toUpperCase()}
-								</AvatarFallback>
-							</Avatar>
+							<AgentAvatar name={debater.name} size="sm" title={debater.name} />
 							<span className="min-w-0 flex-1 truncate text-xs font-semibold">
 								{debater.name}
 							</span>
@@ -75,9 +67,7 @@ export function DiscussionSetupPanel({ discussion }: { discussion: DiscussionDat
 			{/* Judge */}
 			<div className="flex flex-col gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
 				<div className="flex items-center gap-2">
-					<span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400">
-						<Scale className="size-3.5" />
-					</span>
+					<AgentAvatar name="judge" size="sm" title={t('discussion.setup.judge')} />
 					<span className="min-w-0 flex-1 truncate text-xs font-semibold">
 						{t('discussion.setup.judge')}
 					</span>

@@ -1,11 +1,10 @@
-import { Loader2, Scale } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 
 import type { DiscussionData } from '@/api';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { AgentAvatar } from '@/components/agent/AgentAvatar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useTranslation } from '@/i18n/useI18n';
 import { cn } from '@/lib/utils';
-import { avatarTint } from '@/utils/common';
 
 /** The judge's reserved `current_speaker` value, per the backend. */
 const JUDGE = 'judge';
@@ -30,11 +29,12 @@ function LiveDot({ className }: { className?: string }) {
  * Reads `current_speaker`: a debater's name while that debater argues,
  * `"judge"` while the judge scores a round or synthesizes the
  * conclusion, and `null` when nothing speaks. The bar announces the
- * speaker with a live indicator; the frame below previews what is being
- * written — a skeleton argument card for a debater, an "evaluating"
- * strip for the judge (the arbitrator / "trọng tài"). It renders
- * nothing once the floor is empty, so a terminal discussion shows only
- * its timeline and conclusion.
+ * speaker with its `AgentAvatar` pulsing (the judge's is the `Scale`
+ * disc) and a "speaking…" chip, plus the live indicator; the frame
+ * below previews what is being written — a skeleton argument card for a
+ * debater, an "evaluating" strip for the judge (the arbitrator /
+ * "trọng tài"). It renders nothing once the floor is empty, so a
+ * terminal discussion shows only its timeline and conclusion.
  */
 export function LiveSpeakerBar({ discussion }: { discussion: DiscussionData }) {
 	const { t } = useTranslation();
@@ -57,19 +57,13 @@ export function LiveSpeakerBar({ discussion }: { discussion: DiscussionData }) {
 			)}
 			aria-live="polite"
 		>
-			{/* The bar: who is speaking, with a live pulse. */}
+			{/* The bar: who is speaking — avatar pulsing, chip, live dot. */}
 			<div className="flex items-center gap-3">
-				{isJudge ? (
-					<span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400">
-						<Scale className="size-4" />
-					</span>
-				) : (
-					<Avatar className="size-8 shrink-0">
-						<AvatarFallback style={avatarTint(speaker)} className="text-xs font-semibold">
-							{speaker.slice(0, 1).toUpperCase()}
-						</AvatarFallback>
-					</Avatar>
-				)}
+				<AgentAvatar
+					name={speaker}
+					speaking
+					title={isJudge ? t('discussion.live.judgeName') : speaker}
+				/>
 
 				<div className="min-w-0 flex-1">
 					<div className="flex items-center gap-1.5 text-sm font-semibold">
@@ -81,6 +75,16 @@ export function LiveSpeakerBar({ discussion }: { discussion: DiscussionData }) {
 								{t('discussion.live.judgeTag')}
 							</span>
 						)}
+						<span
+							className={cn(
+								'rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide',
+								isJudge
+									? 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
+									: 'bg-blue-500/15 text-blue-600 dark:text-blue-400',
+							)}
+						>
+							{t('discussion.live.speaking')}
+						</span>
 					</div>
 					<div className="truncate text-xs text-muted-foreground">
 						{isJudge

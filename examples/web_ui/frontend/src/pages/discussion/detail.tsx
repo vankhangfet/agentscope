@@ -9,6 +9,8 @@ import { DiscussionStatusBadge } from './components/DiscussionStatusBadge';
 import { LiveSpeakerBar } from './components/LiveSpeakerBar';
 import { DISCUSSION_TERMINAL_STATUSES } from '@/api';
 import type { RoundArgument, RoundEvaluation } from '@/api';
+import { AgentAvatar } from '@/components/agent/AgentAvatar';
+import { agentTextClass } from '@/components/agent/agentIcons';
 import { CreateDiscussionDialog } from '@/components/dialog/CreateDiscussionDialog';
 import { DeleteDialog } from '@/components/dialog/DeleteDialog';
 import { Badge } from '@/components/ui/badge';
@@ -50,13 +52,38 @@ function StrengthStars({ strength }: { strength: number | null }) {
 	);
 }
 
-/** One debater's argument card, with the judge's verdict on it. */
-function ArgumentCard({ argument }: { argument: RoundArgument }) {
+/**
+ * One debater's argument card, with the judge's verdict on it. The
+ * debater wears its avatar and its colour; `animate` plays the entrance
+ * only for cards that arrived live (see the snapshot in the page).
+ */
+function ArgumentCard({
+	argument,
+	animate = false,
+}: {
+	argument: RoundArgument;
+	animate?: boolean;
+}) {
 	const { t } = useTranslation();
 	return (
-		<div className="flex flex-col gap-2 rounded-lg border border-border bg-background/50 p-3">
+		<div
+			className={cn(
+				'flex flex-col gap-2 rounded-lg border border-border bg-background/50 p-3',
+				animate && 'animate-in fade-in slide-in-from-bottom-2 duration-300',
+			)}
+		>
 			<div className="flex items-center justify-between gap-2">
-				<span className="min-w-0 truncate text-xs font-semibold">{argument.debater}</span>
+				<span className="flex min-w-0 items-center gap-1.5">
+					<AgentAvatar name={argument.debater} size="sm" />
+					<span
+						className={cn(
+							'min-w-0 truncate text-xs font-semibold',
+							agentTextClass(argument.debater),
+						)}
+					>
+						{argument.debater}
+					</span>
+				</span>
 				<StrengthStars strength={argument.strength} />
 			</div>
 			{/* A rebutted argument stays readable under the strike — the
@@ -87,8 +114,18 @@ function ArgumentCard({ argument }: { argument: RoundArgument }) {
 	);
 }
 
-/** One round on the timeline: the argument cards, then the verdict. */
-function RoundSection({ round }: { round: RoundEvaluation }) {
+/**
+ * One round on the timeline: the argument cards, then the verdict.
+ * `isFresh` flags the cards that arrived after the page's first paint,
+ * so only those animate in.
+ */
+function RoundSection({
+	round,
+	isFresh,
+}: {
+	round: RoundEvaluation;
+	isFresh: (debater: string, index: number) => boolean;
+}) {
 	const { t } = useTranslation();
 	return (
 		<section className="space-y-2 border-l-2 border-border pl-4">
@@ -108,7 +145,11 @@ function RoundSection({ round }: { round: RoundEvaluation }) {
 			</div>
 			<div className="grid gap-3 md:grid-cols-2">
 				{round.arguments.map((argument, i) => (
-					<ArgumentCard key={`${argument.debater}-${i}`} argument={argument} />
+					<ArgumentCard
+						key={`${argument.debater}-${i}`}
+						argument={argument}
+						animate={isFresh(argument.debater, i)}
+					/>
 				))}
 			</div>
 			{round.summary !== '' && (
@@ -167,6 +208,35 @@ export function DiscussionDetailPage() {
 			discussion == null || !DISCUSSION_TERMINAL_STATUSES.includes(discussion.status),
 		);
 	}, [discussion]);
+
+	// ─── Entrance animation ──────────────────────────────────────────
+	//
+	// Arguments animate in only when they arrive live: the first data
+	// the page paints is snapshotted as the baseline (after the paint,
+	// in the effect below), so a COMPLETED — or merely old — discussion
+	// lands perfectly still, and anything outside that snapshot — the
+	// in-progress round's arguments as the poll delivers them — enters
+	// with the fade/slide. The animation then plays exactly once: keys
+	// are stable (a card is never re-keyed) and the class simply stays
+	// on, because CSS runs an entrance when the element mounts, not on
+	// every re-render — so a poll that changes nothing re-animates
+	// nothing.
+	const [initialArguments, setInitialArguments] = React.useState<Set<string> | null>(null);
+	React.useEffect(() => {
+		// Once only: whatever the first paint showed becomes the baseline.
+		if (discussion == null || initialArguments !== null) return;
+		setInitialArguments(
+			new Set(
+				discussion.rounds.flatMap((round) =>
+					round.arguments.map(
+						(argument, i) => `${round.round}:${argument.debater}:${i}`,
+					),
+				),
+			),
+		);
+	}, [discussion, initialArguments]);
+	const isFreshArgument = (round: number, debater: string, index: number) =>
+		initialArguments != null && !initialArguments.has(`${round}:${debater}:${index}`);
 
 	// ─── Loading / error shell ───────────────────────────────────────────
 
@@ -320,7 +390,13 @@ export function DiscussionDetailPage() {
 						)
 					) : (
 						discussion.rounds.map((round) => (
-							<RoundSection key={round.round} round={round} />
+							<RoundSection
+								key={round.round}
+								round={round}
+								isFresh={(debater, index) =>
+									isFreshArgument(round.round, debater, index)
+								}
+							/>
 						))
 					)}
 				</div>

@@ -912,6 +912,7 @@
 		},
 		"live": {
 			"live": "实时",
+			"speaking": "发言中…",
 			"debaterSpeaking": "正在陈述观点…",
 			"debaterWaiting": "正在撰写论点…",
 			"judgeName": "裁判",
