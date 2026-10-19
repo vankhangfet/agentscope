@@ -103,23 +103,55 @@ function WorkflowCard({
 						</Button>
 					</DropdownMenuTrigger>
 					<DropdownMenuContent align="end">
-						<DropdownMenuItem onClick={onOpen}>
+						{/* The menu renders through a portal, but the React
+						    parent chain — and so each click's propagation —
+						    still runs through the card; stop it or the
+						    card's navigation races the dialog an item
+						    opens. */}
+						<DropdownMenuItem
+							onClick={(e) => {
+								e.stopPropagation();
+								onOpen();
+							}}
+						>
 							<Pen />
 							{t('workflow.list.actions.edit')}
 						</DropdownMenuItem>
-						<DropdownMenuItem onClick={onRun}>
+						<DropdownMenuItem
+							onClick={(e) => {
+								e.stopPropagation();
+								onRun();
+							}}
+						>
 							<Play />
 							{t('workflow.list.actions.run')}
 						</DropdownMenuItem>
-						<DropdownMenuItem disabled={duplicating} onClick={onDuplicate}>
+						<DropdownMenuItem
+							disabled={duplicating}
+							onClick={(e) => {
+								e.stopPropagation();
+								onDuplicate();
+							}}
+						>
 							<Copy />
 							{t('workflow.list.actions.duplicate')}
 						</DropdownMenuItem>
-						<DropdownMenuItem onClick={onViewRuns}>
+						<DropdownMenuItem
+							onClick={(e) => {
+								e.stopPropagation();
+								onViewRuns();
+							}}
+						>
 							<History />
 							{t('workflow.list.actions.viewRuns')}
 						</DropdownMenuItem>
-						<DropdownMenuItem variant="destructive" onClick={onDelete}>
+						<DropdownMenuItem
+							variant="destructive"
+							onClick={(e) => {
+								e.stopPropagation();
+								onDelete();
+							}}
+						>
 							<Trash2 />
 							{t('workflow.list.actions.delete')}
 						</DropdownMenuItem>

@@ -18,6 +18,7 @@ import { DiscussionStatusBadge } from './components/DiscussionStatusBadge';
 import { LiveSpeakerBar } from './components/LiveSpeakerBar';
 import { DISCUSSION_TERMINAL_STATUSES } from '@/api';
 import type { RoundArgument, RoundEvaluation } from '@/api';
+import { ApiError } from '@/api/client';
 import { AgentAvatar } from '@/components/agent/AgentAvatar';
 import { agentTextClass } from '@/components/agent/agentIcons';
 import { CreateDiscussionDialog } from '@/components/dialog/CreateDiscussionDialog';
@@ -212,19 +213,22 @@ export function DiscussionDetailPage() {
 
 	// Poll only while the debate is live: the effect flips the flag on
 	// every fetch, and the final fetch that sees a terminal status is
-	// itself the last poll. A fetch that ERRORS stops the polling too
-	// — a missing record (deleted, or a dead factory link) must not be
-	// re-asked every 2s forever; the error shell below shows instead.
-	// 2s keeps the live speaker bar and the in-progress argument
-	// feeling close to real time without an SSE stream (that follows
-	// later, per the design's non-goals).
+	// itself the last poll. A 404 stops the polling too — a missing
+	// record (deleted, or a dead factory link) must not be re-asked
+	// every 2s forever. Any other error keeps polling (a transient
+	// failure must not freeze a live view), and the error shell below
+	// still renders whenever there is no cached data to show. 2s keeps
+	// the live speaker bar and the in-progress argument feeling close
+	// to real time without an SSE stream (that follows later, per the
+	// design's non-goals).
 	const [poll, setPoll] = React.useState(true);
 	const { discussion, error } = useDiscussion(discussionId || null, {
 		refetchInterval: poll ? 2000 : false,
 	});
 	React.useEffect(() => {
+		const gone = error instanceof ApiError && error.status === 404;
 		setPoll(
-			!error &&
+			!gone &&
 				(discussion == null ||
 					!DISCUSSION_TERMINAL_STATUSES.includes(discussion.status)),
 		);

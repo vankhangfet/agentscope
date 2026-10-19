@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access
 """Discussion REST endpoints over a real app and a fake model.
 
 The chat path is faked at the credential layer (the run-router test's

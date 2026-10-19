@@ -99,7 +99,18 @@ function DiscussionRow({
 						</Button>
 					</DropdownMenuTrigger>
 					<DropdownMenuContent align="end">
-						<DropdownMenuItem variant="destructive" onClick={onDelete}>
+						<DropdownMenuItem
+							variant="destructive"
+							onClick={(e) => {
+								// The menu renders through a portal, but the
+								// React parent chain — and so the click's
+								// propagation — still runs through the row;
+								// stop it or the row's navigation unmounts
+								// the dialog the item opens.
+								e.stopPropagation();
+								onDelete();
+							}}
+						>
 							<Trash2 />
 							{t('common.delete')}
 						</DropdownMenuItem>
@@ -225,7 +236,11 @@ export function DiscussionPage() {
 												{t('discussion.list.table.updated')}
 											</TableHead>
 											{/* The row actions column: the "…" menu. */}
-											<TableHead className="w-10 px-4" />
+											<TableHead className="w-10 px-4">
+												<span className="sr-only">
+													{t('discussion.list.actions.menu')}
+												</span>
+											</TableHead>
 										</TableRow>
 									</TableHeader>
 									<TableBody>
@@ -247,6 +262,10 @@ export function DiscussionPage() {
 
 			<CreateDiscussionDialog open={creating} onOpenChange={setCreating} />
 
+			{/* A failed delete rejects out of onConfirm, so the dialog
+			    keeps itself open for a retry — it closes only on a
+			    resolved confirm — and the API client has already
+			    toasted the failure detail. */}
 			<DeleteDialog
 				open={deleteTarget !== null}
 				onOpenChange={(open) => !open && setDeleteTarget(null)}
@@ -258,13 +277,8 @@ export function DiscussionPage() {
 				onConfirm={async () => {
 					if (!deleteTarget) return;
 					const target = deleteTarget;
-					try {
-						await removeDiscussion.mutateAsync(target.id);
-						setDeleteTarget(null);
-					} catch {
-						// The API client already toasted the failure
-						// detail; the dialog stays open for a retry.
-					}
+					await removeDiscussion.mutateAsync(target.id);
+					setDeleteTarget(null);
 				}}
 			/>
 		</div>
