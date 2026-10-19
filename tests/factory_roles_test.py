@@ -13,6 +13,11 @@ from unittest import IsolatedAsyncioTestCase, TestCase
 from fastapi import HTTPException
 
 from agentscope.app._service.discussion import DebateEngine
+# The discussion engine's judge key, read from its private turns
+# module — the same coupling the factory engine itself makes on
+# ``..discussion._turns`` (``read_turn_reply``): the roster's judge
+# name must stay the very key the engine runs its judge under.
+from agentscope.app._service.discussion._turns import JUDGE_KEY
 from agentscope.app._service.factory import (
     ARCHITECTURE_ROLES,
     DEVELOPER_PROMPT,
@@ -21,6 +26,7 @@ from agentscope.app._service.factory import (
     REVIEWER_PROMPT,
     to_debaters,
 )
+from agentscope.app._service.factory._roles import JUDGE_ROLE
 from agentscope.app.storage import DebaterConfig, DiscussionStatus
 from discussion_engine_test import (
     USER,
@@ -91,6 +97,12 @@ class RoleCatalogTest(TestCase):
             self.assertTrue(prompt.strip())
         # The Plan Lead's whole contract is a strict-JSON task list.
         self.assertIn("JSON", PLAN_LEAD_PROMPT)
+
+    def test_judge_name_is_the_discussion_engines_judge_key(self) -> None:
+        """The roster's judge runs under the very key the discussion
+        engine gives its judge, so an engine rename cannot silently
+        fork the roster's name from the name it arbitrates under."""
+        self.assertEqual(JUDGE_ROLE["name"], JUDGE_KEY)
 
 
 class RunToCompletionTest(IsolatedAsyncioTestCase):

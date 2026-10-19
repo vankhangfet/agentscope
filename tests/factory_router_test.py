@@ -662,9 +662,12 @@ class FactoryRouterTest(IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 200, response.text)
         roster = response.json()
         groups = roster["groups"]
+        # Derived from the enum, not spelled out: a new FactoryPhase
+        # member without a roster group must fail here, not ship a
+        # silent gap in the catalog.
         self.assertEqual(
             [group["phase"] for group in groups],
-            ["REQUIREMENTS", "ARCHITECTURE", "DEVELOP"],
+            [phase.value for phase in FactoryPhase],
         )
         self.assertEqual(
             [len(group["roles"]) for group in groups],

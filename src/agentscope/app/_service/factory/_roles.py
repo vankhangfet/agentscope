@@ -171,7 +171,7 @@ stances instead describe the role's job, which is what a roster
 reader wants. The ``developer`` covers the per-task
 ``developer_N`` sessions."""
 
-JUDGE_ROLE: dict = {
+JUDGE_ROLE: dict[str, str] = {
     "name": "judge",
     "title": "Judge",
     "stance": (
