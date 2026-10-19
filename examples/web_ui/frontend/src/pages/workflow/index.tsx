@@ -138,7 +138,11 @@ export function WorkflowPage() {
 	const createWorkflow = useCreateWorkflow();
 	const deleteWorkflow = useDeleteWorkflow();
 	const [deleteTarget, setDeleteTarget] = React.useState<WorkflowRecord | null>(null);
-	const [runTarget, setRunTarget] = React.useState<WorkflowRecord | null>(null);
+	// The run target outlives the dialog's close so the exit animation
+	// keeps showing the preset form instead of flashing the workflow
+	// Select in; the next Run click replaces the id.
+	const [runOpen, setRunOpen] = React.useState(false);
+	const [runWorkflowId, setRunWorkflowId] = React.useState<string | undefined>(undefined);
 	const [duplicatingId, setDuplicatingId] = React.useState<string | null>(null);
 
 	// No id means "new workflow" — the builder prompts for a name.
@@ -241,7 +245,10 @@ export function WorkflowPage() {
 										workflow={workflow}
 										duplicating={duplicatingId === workflow.id}
 										onOpen={() => openBuilder(workflow.id)}
-										onRun={() => setRunTarget(workflow)}
+										onRun={() => {
+											setRunWorkflowId(workflow.id);
+											setRunOpen(true);
+										}}
 										onDuplicate={() => void handleDuplicate(workflow)}
 										onViewRuns={() =>
 											navigate(`/workflow/runs?workflowId=${workflow.id}`)
@@ -272,9 +279,9 @@ export function WorkflowPage() {
 			/>
 
 			<RunWorkflowDialog
-				workflowId={runTarget?.id}
-				open={runTarget !== null}
-				onOpenChange={(open) => !open && setRunTarget(null)}
+				workflowId={runWorkflowId}
+				open={runOpen}
+				onOpenChange={setRunOpen}
 			/>
 		</div>
 	);

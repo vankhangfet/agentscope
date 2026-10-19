@@ -180,8 +180,10 @@ export function validateGraph(graph: WorkflowGraph): string[] {
 			// blank template and iterate has nothing to fan out without
 			// one (the backend rejects it on save, but only after a
 			// round trip — this keeps the Problems strip honest).
+			// Bare-id `<type> node <id> …` wording, matching the
+			// Condition / Approval node messages above.
 			if (node.config.mode === 'iterate' && !(node.config.list_template ?? '').trim()) {
-				problems.push(`Loop '${node.id}' needs a list template`);
+				problems.push(`Loop node ${node.id} needs a list template`);
 			}
 		} else if (node.config.type === 'human_approval') {
 			const allowed = new Set(['approve', 'reject']);

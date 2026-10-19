@@ -773,6 +773,8 @@
 			"description": "Start a run now and follow it live.",
 			"workflowLabel": "Workflow",
 			"workflowPlaceholder": "Select a workflow",
+			"workflowLoading": "Loading workflows…",
+			"workflowLoadFailed": "Couldn't load workflows",
 			"noWorkflows": "No workflows yet — create one first.",
 			"inputLabel": "Input (JSON)",
 			"inputInvalid": "Not valid JSON",

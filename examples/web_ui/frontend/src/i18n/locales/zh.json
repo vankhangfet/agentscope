@@ -773,6 +773,8 @@
 			"description": "立即启动一次运行并实时跟踪。",
 			"workflowLabel": "工作流",
 			"workflowPlaceholder": "选择工作流",
+			"workflowLoading": "正在加载工作流…",
+			"workflowLoadFailed": "无法加载工作流",
 			"noWorkflows": "还没有工作流——请先创建。",
 			"inputLabel": "输入（JSON）",
 			"inputInvalid": "不是有效的 JSON",

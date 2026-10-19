@@ -59,7 +59,7 @@ export function RunWorkflowDialog({ workflowId, open, onOpenChange }: Props) {
 	const { t } = useTranslation();
 	const navigate = useNavigate();
 	const startRun = useStartRun();
-	const { workflows } = useWorkflows();
+	const { workflows, loading, error } = useWorkflows();
 
 	const [input, setInput] = React.useState('{}');
 	const [model, setModel] = React.useState<ChatModelConfig | null>(null);
@@ -124,6 +124,10 @@ export function RunWorkflowDialog({ workflowId, open, onOpenChange }: Props) {
 					{workflowId === undefined && (
 						<Field>
 							<FieldLabel>{t('workflow.runDialog.workflowLabel')}</FieldLabel>
+							{/* Cached entries win even over a background-refetch
+							    error; only a truly empty list shows the
+							    in-flight / failed / empty states, so an
+							    uncached load never reads as "no workflows". */}
 							{workflows.length > 0 ? (
 								<Select value={selectedId} onValueChange={setSelectedId}>
 									<SelectTrigger>
@@ -138,6 +142,22 @@ export function RunWorkflowDialog({ workflowId, open, onOpenChange }: Props) {
 											</SelectItem>
 										))}
 									</SelectContent>
+								</Select>
+							) : error ? (
+								// The client-wide toast already reported the
+								// failure; this inline note keeps the field
+								// from claiming there are no workflows.
+								<p className="text-xs text-muted-foreground">
+									{t('workflow.runDialog.workflowLoadFailed')}
+								</p>
+							) : loading ? (
+								<Select disabled>
+									<SelectTrigger>
+										<SelectValue
+											placeholder={t('workflow.runDialog.workflowLoading')}
+										/>
+									</SelectTrigger>
+									<SelectContent />
 								</Select>
 							) : (
 								<p className="text-xs text-muted-foreground">

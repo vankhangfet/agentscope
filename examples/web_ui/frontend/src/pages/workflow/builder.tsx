@@ -358,16 +358,21 @@ function Builder() {
 	// ─── Run ────────────────────────────────────────────────────────────
 
 	// A run executes the stored workflow, so it needs a saved, valid
-	// graph: brand-new or edited-but-unsaved, and any validation problem
-	// all keep the button disabled — with the reason as its tooltip.
-	const runDisabled = loading || !workflowId || dirty || problems.length > 0;
+	// graph: a failed load (whose unseeded snapshot would otherwise read
+	// as "unsaved"), brand-new or edited-but-unsaved, and any validation
+	// problem all keep the button disabled — with the reason as its
+	// tooltip.
+	const runDisabled = loading || error !== null || !workflowId || dirty || problems.length > 0;
 	const runReason = loading
 		? undefined
-		: !workflowId || dirty
-			? t('workflow.builder.runUnsaved')
-			: problems.length > 0
-				? t('workflow.builder.runProblems', { count: problems.length })
-				: undefined;
+		: error !== null
+			? // Same copy as the canvas's load-failure empty state.
+				t('workflow.builder.loadFailed')
+			: !workflowId || dirty
+				? t('workflow.builder.runUnsaved')
+				: problems.length > 0
+					? t('workflow.builder.runProblems', { count: problems.length })
+					: undefined;
 
 	const handleSave = async () => {
 		if (saveDisabled) return;
