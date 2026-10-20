@@ -54,6 +54,7 @@ class _FakeTelegramHTTP:
         self.posts: list[tuple[str, dict[str, Any]]] = []
         self.closed = False
         self.on_get: Callable[[], None] | None = None
+        self.post_ok = True
 
     async def get(self, url: str, **kwargs: Any) -> _FakeResponse:
         self.gets.append((url, kwargs))
@@ -69,7 +70,9 @@ class _FakeTelegramHTTP:
 
     async def post(self, url: str, **kwargs: Any) -> _FakeResponse:
         self.posts.append((url, kwargs))
-        return _FakeResponse({"ok": True, "result": {"message_id": 1}})
+        return _FakeResponse(
+            {"ok": self.post_ok, "result": {"message_id": 1}},
+        )
 
     async def aclose(self) -> None:
         self.closed = True
@@ -478,3 +481,77 @@ class TelegramSendResponseTest(IsolatedAsyncioTestCase):
         self.assertIn("Bash", payload["text"])
         self.assertIn("approval", payload["text"])
         self.assertIn('{"command":"ls"}', payload["text"])
+
+
+class TelegramSendTextTest(IsolatedAsyncioTestCase):
+    """Workflow notifications: the default chat and failure signalling.
+
+    Inbound replies go to the chat the message came from; a notification
+    has no inbound event, so the chat comes from the channel's settings
+    — the explicit ``default_chat_id``, else the single configured
+    allowed chat when there is exactly one.
+    """
+
+    def _notify_channel(self, **config: Any) -> TelegramChannel:
+        return TelegramChannel(
+            "tg-1",
+            TelegramChannel.Credentials(bot_token="token-1"),
+            TelegramChannel.Config(**config),
+        )
+
+    async def _send_text(
+        self,
+        channel: TelegramChannel,
+        http: _FakeTelegramHTTP,
+    ) -> None:
+        with patch.object(channel, "_new_http_client", return_value=http):
+            await channel.send_text("deploy done")
+            await channel.aclose()
+
+    async def test_explicit_default_chat_id_wins(self) -> None:
+        channel = self._notify_channel(
+            default_chat_id="999",
+            allowed_chat_ids=["111", "222"],
+        )
+        http = _FakeTelegramHTTP()
+
+        await self._send_text(channel, http)
+
+        self.assertEqual(
+            http.posts[0][1]["json"],
+            {"chat_id": "999", "text": "deploy done"},
+        )
+
+    async def test_single_allowed_chat_is_the_default(self) -> None:
+        """A bot scoped to exactly one chat has an unambiguous default."""
+        channel = self._notify_channel(allowed_chat_ids=["111"])
+        http = _FakeTelegramHTTP()
+
+        await self._send_text(channel, http)
+
+        self.assertEqual(http.posts[0][1]["json"]["chat_id"], "111")
+
+    async def test_no_unambiguous_default_raises(self) -> None:
+        """Neither an allow-everything bot nor a multi-chat bot has a
+        default the channel could pick on the operator's behalf."""
+        for config in ({}, {"allowed_chat_ids": ["111", "222"]}):
+            with self.assertRaises(ValueError) as ctx:
+                await self._notify_channel(**config).send_text("hi")
+            self.assertIn("default chat", str(ctx.exception))
+
+    async def test_a_rejected_send_raises(self) -> None:
+        """A non-ok sendMessage answer must raise, not read as
+        delivered — the notify node counts on the failure to retry."""
+        channel = self._notify_channel(default_chat_id="999")
+        http = _FakeTelegramHTTP()
+        http.post_ok = False
+
+        with self.assertRaises(RuntimeError) as ctx:
+            with patch.object(
+                channel,
+                "_new_http_client",
+                return_value=http,
+            ):
+                await channel.send_text("hi")
+
+        self.assertIn("999", str(ctx.exception))

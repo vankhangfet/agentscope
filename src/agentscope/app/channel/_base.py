@@ -503,6 +503,34 @@ class ChannelBase(ABC):
         """
         return None
 
+    async def send_text(self, text: str) -> None:
+        """Send one notification to the channel's default target.
+
+        The workflow notify node's send path. Unlike
+        :meth:`send_response` there is no inbound event to address the
+        reply to, so each platform resolves its own configured default
+        target from its stored settings (a webhook that needs none, a
+        chat id, a receive id) and raises on failure so the caller can
+        report and retry.
+
+        v1 implements this for MS Teams, Telegram, Feishu and
+        DingTalk. A platform that cannot send without a live
+        conversation object it only holds while listening (Discord)
+        keeps this default, and the notify node fails with a clear
+        "does not support workflow notifications" error.
+
+        Args:
+            text (`str`): The message text to deliver.
+
+        Raises:
+            `NotImplementedError`: This channel type does not support
+                workflow notifications.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support workflow "
+            "notifications.",
+        )
+
     async def remove_reaction(
         self,
         event: ChannelEvent,

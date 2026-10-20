@@ -11,6 +11,7 @@ from agentscope.app.storage import (
     ConditionNodeConfig,
     HumanApprovalNodeConfig,
     LoopNodeConfig,
+    NotifyNodeConfig,
     WorkflowData,
     WorkflowEdge,
     WorkflowGraph,
@@ -62,6 +63,37 @@ class WorkflowGraphValidationTest(TestCase):
             edges={"e1": _e("e1", "a", "b")},
         )
         self.assertEqual(validate_workflow_graph(graph), [])
+
+    def test_a_notify_node_is_non_branching(self) -> None:
+        """A notify node needs no branch edges: it validates like an
+        agent node and follows plain sequence edges."""
+        graph = _graph(
+            _agent("a"),
+            WorkflowNode(
+                id="ping",
+                config=NotifyNodeConfig(
+                    channel_id="chan-1",
+                    message_template="Done: {{nodes.a.output.text}}",
+                ),
+            ),
+            edges={"e1": _e("e1", "a", "ping")},
+        )
+        self.assertEqual(validate_workflow_graph(graph), [])
+
+    def test_notify_config_requires_a_message_template(self) -> None:
+        """An empty template is rejected by the model, and the retry
+        budget shares the agent node's bounds."""
+        with self.assertRaises(ValidationError):
+            NotifyNodeConfig(
+                channel_id="chan-1",
+                message_template="",
+            )
+        with self.assertRaises(ValidationError):
+            NotifyNodeConfig(
+                channel_id="chan-1",
+                message_template="x",
+                max_retries=11,
+            )
 
     def test_a_cycle_is_reported_with_its_path(self) -> None:
         graph = _graph(

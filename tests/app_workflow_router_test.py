@@ -6,10 +6,18 @@ from unittest import IsolatedAsyncioTestCase
 
 import fakeredis.aioredis
 from fastapi.testclient import TestClient
+from pydantic import BaseModel
 
 from agentscope.app import create_app
+from agentscope.app.channel import ChannelBase, ChannelStatus
 from agentscope.app.message_bus import RedisMessageBus
-from agentscope.app.storage import RedisStorage
+from agentscope.app.storage import (
+    ChannelBinding,
+    ChannelRecord,
+    RedisStorage,
+    RoutingConfig,
+    SessionSettings,
+)
 from agentscope.app.workspace_manager import LocalWorkspaceManager
 
 HEADERS = {"X-User-ID": "alice"}
@@ -245,3 +253,244 @@ class WorkflowRouterTest(IsolatedAsyncioTestCase):
             ).status_code,
             404,
         )
+
+
+class _WiringChannel(ChannelBase):
+    """A registered-but-inert channel type, to wire the real factory."""
+
+    channel_type = "wiring-fake"
+    display_name = "Wiring Fake"
+    platform_bot_id_field = "bot_id"
+
+    class Credentials(BaseModel):
+        """Credentials for the fake platform."""
+
+        bot_id: str
+
+    class Config(BaseModel):
+        """Options for the fake platform."""
+
+    def __init__(
+        self,
+        channel_id: str,
+        credentials: "Credentials",
+        config: "Config",  # pylint: disable=unused-argument
+    ) -> None:
+        """Store the identity; nothing else is ever called."""
+        self._channel_id = channel_id
+        self._bot_id = credentials.bot_id
+        self.status = ChannelStatus()
+
+    @property
+    def channel_id(self) -> str:
+        """The fixed test id."""
+        return self._channel_id
+
+    async def start_listening(self, emit: Any) -> None:
+        """Never called."""
+
+    async def send_response(self, event: Any, events: Any) -> None:
+        """Never called."""
+
+
+def _notify_graph(agent_id: str, channel_id: str) -> dict:
+    """An agent node feeding a notify node."""
+    return {
+        "nodes": [
+            {"id": "a", "config": {"type": "agent", "agent_id": agent_id}},
+            {
+                "id": "ping",
+                "config": {
+                    "type": "notify",
+                    "channel_id": channel_id,
+                    "message_template": "Done: {{input.topic}}",
+                },
+            },
+        ],
+        "edges": [{"id": "e1", "source": "a", "target": "ping"}],
+    }
+
+
+async def _seed_channel(
+    storage: RedisStorage,
+    *,
+    channel_id: str,
+    user_id: str,
+    enabled: bool,
+    name: str = "Ops room",
+) -> ChannelRecord:
+    """Insert one channel record directly, bypassing the channel API."""
+    record = ChannelRecord(
+        id=channel_id,
+        channel_type="wiring-fake",
+        name=name,
+        user_id=user_id,
+        enabled=enabled,
+        credentials={"bot_id": f"bot-{channel_id}"},
+        routing=RoutingConfig(
+            bindings=[ChannelBinding(match_value="*", agent_id="agent-x")],
+        ),
+        session=SessionSettings(chat_model_config={"type": "x"}),
+    )
+    await storage.upsert_channel(
+        record,
+        platform_bot_id=f"bot-{channel_id}",
+    )
+    return record
+
+
+class NotifyChannelValidationTest(IsolatedAsyncioTestCase):
+    """A notify node's channel reference is checked at save time."""
+
+    async def asyncSetUp(self) -> None:
+        self._tmp = self.enterContext(tempfile.TemporaryDirectory())
+        self.storage, self.bus = _fake_backends()
+        # Seeded before the app boots, so this test's event loop is the
+        # only one touching fakeredis while the records are written;
+        # entering storage first binds its client (the app's own
+        # context entry re-binds the same one, so the double entry is
+        # harmless).
+        # pylint: disable-next=unnecessary-dunder-call
+        await self.storage.__aenter__()
+        await _seed_channel(
+            self.storage,
+            channel_id="ch-off",
+            user_id="alice",
+            enabled=False,
+        )
+        await _seed_channel(
+            self.storage,
+            channel_id="ch-bobs",
+            user_id="bob",
+            enabled=True,
+        )
+        await _seed_channel(
+            self.storage,
+            channel_id="ch-ok",
+            user_id="alice",
+            enabled=True,
+        )
+        self.app = create_app(
+            storage=self.storage,
+            message_bus=self.bus,
+            workspace_manager=LocalWorkspaceManager(self._tmp),
+            enable_index_worker=False,
+        )
+        self._client = self.enterContext(TestClient(self.app))
+        self._agent_id = self._client.post(
+            "/agent/",
+            json={"name": "worker", "system_prompt": "hi"},
+            headers=HEADERS,
+        ).json()["agent_id"]
+
+    def _create(self, channel_id: str) -> Any:
+        return self._client.post(
+            "/workflow/",
+            json={
+                "data": {
+                    "name": "notify pipeline",
+                    "graph": _notify_graph(self._agent_id, channel_id),
+                },
+            },
+            headers=HEADERS,
+        )
+
+    async def test_unknown_channel_is_rejected(self) -> None:
+        created = self._create("ch-ghost")
+        self.assertEqual(created.status_code, 422)
+        problems = created.json()["detail"]["problems"]
+        self.assertTrue(
+            any("unknown channel 'ch-ghost'" in p for p in problems),
+            problems,
+        )
+
+    async def test_disabled_channel_is_rejected(self) -> None:
+        await _seed_channel(
+            self.storage,
+            channel_id="ch-off",
+            user_id="alice",
+            enabled=False,
+        )
+        created = self._create("ch-off")
+        self.assertEqual(created.status_code, 422)
+        problems = created.json()["detail"]["problems"]
+        self.assertTrue(
+            any("disabled channel 'ch-off'" in p for p in problems),
+            problems,
+        )
+
+    async def test_another_users_channel_reads_as_unknown(self) -> None:
+        await _seed_channel(
+            self.storage,
+            channel_id="ch-bobs",
+            user_id="bob",
+            enabled=True,
+        )
+        created = self._create("ch-bobs")
+        self.assertEqual(created.status_code, 422)
+        problems = created.json()["detail"]["problems"]
+        self.assertTrue(
+            any("unknown channel 'ch-bobs'" in p for p in problems),
+            problems,
+        )
+
+    async def test_enabled_owned_channel_saves(self) -> None:
+        await _seed_channel(
+            self.storage,
+            channel_id="ch-ok",
+            user_id="alice",
+            enabled=True,
+        )
+        created = self._create("ch-ok")
+        self.assertEqual(created.status_code, 201, created.text)
+        workflow_id = created.json()["workflow_id"]
+        fetched = self._client.get(
+            f"/workflow/{workflow_id}",
+            headers=HEADERS,
+        )
+        nodes = fetched.json()["data"]["graph"]["nodes"]
+        self.assertEqual(nodes[1]["config"]["type"], "notify")
+
+
+class WorkflowEngineWiringTest(IsolatedAsyncioTestCase):
+    """The lifespan hands the engine the channel clients it builds."""
+
+    async def test_engine_receives_the_lifespan_channel_clients(
+        self,
+    ) -> None:
+        tmp = self.enterContext(tempfile.TemporaryDirectory())
+        storage, bus = _fake_backends()
+        app = create_app(
+            storage=storage,
+            message_bus=bus,
+            workspace_manager=LocalWorkspaceManager(tmp),
+            enable_index_worker=False,
+            channels=[_WiringChannel],
+            enable_channel_worker=False,
+        )
+        with TestClient(app):
+            # pylint: disable=protected-access
+            self.assertIsNotNone(app.state.channel_clients)
+            self.assertIs(
+                app.state.workflow_engine._handlers._channel_clients,
+                app.state.channel_clients,
+            )
+
+    async def test_engine_without_channels_gets_none(self) -> None:
+        """A process with no registered channel types has no factory to
+        hand over; the engine still builds and notify nodes fail at
+        dispatch with the missing-channel error."""
+        tmp = self.enterContext(tempfile.TemporaryDirectory())
+        storage, bus = _fake_backends()
+        app = create_app(
+            storage=storage,
+            message_bus=bus,
+            workspace_manager=LocalWorkspaceManager(tmp),
+            enable_index_worker=False,
+        )
+        with TestClient(app):
+            # pylint: disable=protected-access
+            self.assertIsNone(app.state.channel_clients)
+            self.assertIsNone(
+                app.state.workflow_engine._handlers._channel_clients,
+            )

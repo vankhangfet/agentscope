@@ -241,6 +241,22 @@ class MSTeamsChannel(ChannelBase):
             self._channel_id,
         )
 
+    async def send_text(self, text: str) -> None:
+        """Send one untitled notification card to the webhook URL.
+
+        The Incoming Webhook addresses exactly one Teams channel, so it
+        is itself the default target a workflow notification needs —
+        the plain send with no title.
+
+        Args:
+            text (`str`): Card body, capped at the MessageCard limit.
+
+        Raises:
+            `RuntimeError`: If the webhook is unreachable or rejects
+                the card.
+        """
+        await self.send_notification(None, text)
+
     # -- Helpers --
 
     def _new_http_client(self) -> "httpx.AsyncClient":

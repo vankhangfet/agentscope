@@ -9,6 +9,7 @@ from ..storage import (
     ChatModelConfig,
     ConditionNodeConfig,
     LoopNodeConfig,
+    NotifyNodeConfig,
     RunStatus,
     StorageBase,
     WorkflowData,
@@ -170,10 +171,11 @@ class WorkflowService:
         user_id: str,
         graph: WorkflowGraph,
     ) -> list[str]:
-        """Structural checks plus agent existence.
+        """Structural checks plus agent and channel existence.
 
         Args:
-            user_id (`str`): The owner whose agents are referenced.
+            user_id (`str`): The owner whose agents and channels are
+                referenced.
             graph (`WorkflowGraph`): The graph to check.
 
         Returns:
@@ -195,6 +197,45 @@ class WorkflowService:
             if await self._storage.get_agent(user_id, agent_id) is None:
                 problems.append(
                     f"Node references unknown agent {agent_id!r}",
+                )
+        problems.extend(await self._validate_channels(user_id, graph))
+        return problems
+
+    async def _validate_channels(
+        self,
+        user_id: str,
+        graph: WorkflowGraph,
+    ) -> list[str]:
+        """Every notify node's channel exists, is enabled, and is
+        owned by *user_id* — the same guarantees the runtime's
+        ``ChannelClients.get`` will rely on when the run dispatches.
+
+        A channel owned by someone else reads as unknown here, like
+        the 403 the channel API would answer: channel ids are global,
+        so the ownership check cannot live in storage's ``get``.
+
+        Args:
+            user_id (`str`): The owner whose channels are referenced.
+            graph (`WorkflowGraph`): The graph to check.
+
+        Returns:
+            `list[str]`: Human-readable problems; empty means valid.
+        """
+        problems: list[str] = []
+        for node in graph.nodes:
+            if not isinstance(node.config, NotifyNodeConfig):
+                continue
+            channel_id = node.config.channel_id
+            record = await self._storage.get_channel(channel_id)
+            if record is None or record.user_id != user_id:
+                problems.append(
+                    f"Node {node.id!r} references unknown channel "
+                    f"{channel_id!r}",
+                )
+            elif not record.enabled:
+                problems.append(
+                    f"Node {node.id!r} references disabled channel "
+                    f"{channel_id!r}",
                 )
         return problems
 
@@ -337,8 +378,9 @@ class WorkflowService:
         and loop bodies take the agent template's model, else the
         run-level default; a condition node with an ``llm_judge``
         branch takes the node's model, else the run-level default; a
-        rule-only condition or an approval node needs none; and a
-        ``retry_until`` loop's verifier takes only the run-level
+        rule-only condition, an approval node and a notify node need
+        none (the notify node sends through a channel, not a model);
+        and a ``retry_until`` loop's verifier takes only the run-level
         default, so one must be present.
 
         Args:

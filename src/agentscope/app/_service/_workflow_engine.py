@@ -21,6 +21,7 @@ import asyncio
 import logging
 from collections.abc import Callable
 from datetime import datetime, timedelta
+from typing import TYPE_CHECKING
 
 from fastapi import HTTPException, status
 
@@ -32,6 +33,7 @@ from ..storage import (
     HumanApprovalNodeConfig,
     LoopNodeConfig,
     NodeRunState,
+    NotifyNodeConfig,
     RunStatus,
     StorageBase,
     WorkflowNode,
@@ -46,6 +48,9 @@ from ._workflow_nodes import (
     NodeHandlers,
 )
 from ._workflow_planner import ready_nodes, run_is_finished
+
+if TYPE_CHECKING:
+    from ..channel import ChannelClients
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +96,7 @@ class WorkflowEngine:
         chat_runner: ChatRunner,
         judge_agent_factory: JudgeAgentFactory,
         max_parallel: int = 4,
+        channel_clients: "ChannelClients | None" = None,
     ) -> None:
         """Initialize the engine.
 
@@ -104,6 +110,10 @@ class WorkflowEngine:
                 generic judge agents exist and returns their ids.
             max_parallel (`int`, defaults to ``4``): Node attempts the
                 engine runs concurrently across all its runs.
+            channel_clients (`ChannelClients | None`, optional): The
+                factory notify nodes send through; ``None`` in a
+                process without the channel subsystem, whose notify
+                nodes then fail as missing channels.
         """
         self._storage = storage
         self._bus = message_bus
@@ -111,6 +121,7 @@ class WorkflowEngine:
             storage,
             chat_runner,
             judge_agent_factory,
+            channel_clients,
         )
         self._tasks: dict[str, asyncio.Task] = {}
         self._rescues: set[asyncio.Task] = set()
@@ -629,10 +640,11 @@ class WorkflowEngine:
     def _retry_left(node: WorkflowNode, attempts: int) -> bool:
         """Whether one more attempt of *node* fits its retry budget.
 
-        Agent nodes get ``max_retries`` retries on top of the first
-        try (total tries = ``max_retries + 1``); a ``retry_until``
-        loop gets ``max_attempts`` tries in total. Everything else —
-        condition, approval, ``iterate`` loops — runs exactly once.
+        Agent and notify nodes get ``max_retries`` retries on top of
+        the first try (total tries = ``max_retries + 1``); a
+        ``retry_until`` loop gets ``max_attempts`` tries in total.
+        Everything else — condition, approval, ``iterate`` loops —
+        runs exactly once.
 
         Args:
             node (`WorkflowNode`): The node that just failed.
@@ -642,7 +654,7 @@ class WorkflowEngine:
             `bool`: True when another attempt may run.
         """
         cfg = node.config
-        if isinstance(cfg, AgentNodeConfig):
+        if isinstance(cfg, (AgentNodeConfig, NotifyNodeConfig)):
             return attempts <= cfg.max_retries
         if isinstance(cfg, LoopNodeConfig) and cfg.mode == "retry_until":
             return attempts < cfg.max_attempts

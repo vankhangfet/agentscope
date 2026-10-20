@@ -161,12 +161,40 @@ class HumanApprovalNodeConfig(BaseModel):
     )
 
 
+class NotifyNodeConfig(BaseModel):
+    """Send one rendered message to a configured channel."""
+
+    type: Literal["notify"] = "notify"
+
+    channel_id: str = Field(
+        description="The channel this node notifies.",
+    )
+
+    message_template: str = Field(
+        min_length=1,
+        description=(
+            "Mustache-style template over the run blackboard, e.g. "
+            "``{{nodes.researcher.output.text}}``; the rendered text "
+            "is sent to the channel."
+        ),
+        json_schema_extra={"format": "textarea"},
+    )
+
+    max_retries: int = Field(
+        default=2,
+        ge=0,
+        le=10,
+        description="Retries before the node fails the run.",
+    )
+
+
 WorkflowNodeConfig = Annotated[
     Union[
         AgentNodeConfig,
         ConditionNodeConfig,
         LoopNodeConfig,
         HumanApprovalNodeConfig,
+        NotifyNodeConfig,
     ],
     Field(discriminator="type"),
 ]

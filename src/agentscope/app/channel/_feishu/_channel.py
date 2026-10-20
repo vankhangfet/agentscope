@@ -17,7 +17,14 @@ import base64
 import json
 import threading
 import time
-from typing import Any, AsyncIterator, Awaitable, Callable, TYPE_CHECKING
+from typing import (
+    Any,
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Literal,
+    TYPE_CHECKING,
+)
 
 from pydantic import BaseModel, Field
 
@@ -116,6 +123,18 @@ class FeishuChannel(ChannelBase):
             title="Reply only when mentioned",
             description="In group chats, reply only when the bot is "
             "@mentioned",
+        )
+        default_receive_id: str = Field(
+            default="",
+            title="Default receive ID",
+            description="Chat or user that workflow notifications are "
+            "sent to — a chat_id from the bot's chat list, or a "
+            "person's open_id. Empty disables workflow notifications.",
+        )
+        default_receive_id_type: Literal["chat_id", "open_id"] = Field(
+            default="chat_id",
+            title="Default receive ID type",
+            description="Which kind of id default_receive_id holds.",
         )
         show_tool_process: bool = Field(
             default=False,
@@ -973,6 +992,40 @@ class FeishuChannel(ChannelBase):
         ] + await super().list_tools(workspace, channel_user_id)
 
     # -- Agent-tool operations (act on chats/users other than the current) --
+
+    async def send_text(self, text: str) -> None:
+        """Send one notification to the configured default target.
+
+        A notification has no inbound event, so the recipient comes
+        from the channel's settings: ``default_receive_id`` typed by
+        ``default_receive_id_type`` — the same (id, type) pair the
+        SendMessage platform tool takes, copied from the bot's chat
+        list or a member listing.
+
+        Args:
+            text (`str`): The message text.
+
+        Raises:
+            `ValueError`: No default receive id is configured.
+            `RuntimeError`: Feishu refused the send.
+        """
+        receive_id = self._config.default_receive_id
+        if not receive_id:
+            raise ValueError(
+                f"Feishu channel '{self._channel_id}' has no default "
+                "receive id for workflow notifications: set "
+                "default_receive_id in its settings.",
+            )
+        data = await self.send_message_to(
+            receive_id,
+            self._config.default_receive_id_type,
+            text,
+        )
+        if data is None:
+            raise RuntimeError(
+                f"Feishu refused the notification to receive id "
+                f"{receive_id!r}.",
+            )
 
     async def send_message_to(
         self,

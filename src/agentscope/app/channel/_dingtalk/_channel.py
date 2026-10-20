@@ -111,6 +111,14 @@ class DingTalkChannel(ChannelBase):
             description="In group chats, reply only when the bot is "
             "@mentioned",
         )
+        default_target: str = Field(
+            default="",
+            title="Default target",
+            description="Conversation that workflow notifications are "
+            "sent to — an encoded target copied verbatim from a "
+            "ListConversations result. Empty disables workflow "
+            "notifications.",
+        )
         show_tool_process: bool = Field(
             default=False,
             title="Show tool process",
@@ -683,6 +691,34 @@ class DingTalkChannel(ChannelBase):
             content=[TextBlock(type="text", text=markdown)],
             next_start_index=next_start_index,
         )
+
+    async def send_text(self, text: str) -> None:
+        """Send one notification to the configured default target.
+
+        A notification has no inbound event, so the recipient comes
+        from the channel's settings: ``default_target``, an encoded
+        conversation target in the same form the Send* platform tools
+        take (copied verbatim from a ListConversations result).
+
+        Args:
+            text (`str`): Markdown-formatted message body.
+
+        Raises:
+            `ValueError`: No default target is configured.
+            `RuntimeError`: DingTalk refused the send.
+        """
+        target = self._config.default_target
+        if not target:
+            raise ValueError(
+                f"DingTalk channel '{self._channel_id}' has no default "
+                "target for workflow notifications: set default_target "
+                "in its settings.",
+            )
+        if not await self.send_message_to(target, text):
+            raise RuntimeError(
+                f"DingTalk refused the notification to target "
+                f"{target!r}.",
+            )
 
     async def send_message_to(self, target: str, text: str) -> bool:
         """Send Markdown text to an encoded DingTalk target.

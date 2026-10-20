@@ -7,7 +7,7 @@ raises.
 """
 import json
 import re
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, TYPE_CHECKING
 
 from ..._utils._common import _generate_id
 from ...message import ToolCallState, UserMsg
@@ -20,6 +20,7 @@ from ..storage import (
     ConditionNodeConfig,
     HumanApprovalNodeConfig,
     LoopNodeConfig,
+    NotifyNodeConfig,
     SessionConfig,
     StorageBase,
     WorkflowNode,
@@ -32,6 +33,9 @@ from ._workflow_template import (
     resolve_path,
     scalar_text,
 )
+
+if TYPE_CHECKING:
+    from ..channel import ChannelBase, ChannelClients
 
 
 ChatRunner = Callable[..., Awaitable[None]]
@@ -78,7 +82,7 @@ unflagged."""
 
 
 class NodeHandlers:
-    """The four node behaviours a workflow run dispatches to.
+    """The node behaviours a workflow run dispatches to.
 
     Handlers never persist the run: they stash what a retry needs
     (session ids) into ``run.data.context`` in memory and return the
@@ -91,6 +95,7 @@ class NodeHandlers:
         storage: StorageBase,
         chat_runner: ChatRunner,
         judge_agent_factory: JudgeAgentFactory,
+        channel_clients: "ChannelClients | None" = None,
     ) -> None:
         """Initialize the handler set.
 
@@ -102,10 +107,16 @@ class NodeHandlers:
                 shared generic judge agent exists and returns its id;
                 the specific instruction always rides the user
                 message, never the system prompt.
+            channel_clients (`ChannelClients | None`, optional): Builds
+                the unconnected channel instances notify nodes send
+                through. ``None`` in a process without the channel
+                subsystem — a notify node there fails as a missing
+                channel.
         """
         self._storage = storage
         self._chat_runner = chat_runner
         self._judge_agent_factory = judge_agent_factory
+        self._channel_clients = channel_clients
         self._handlers: dict[
             str,
             Callable[
@@ -117,6 +128,7 @@ class NodeHandlers:
             "condition": self.handle_condition,
             "loop": self.handle_loop,
             "human_approval": self.handle_approval,
+            "notify": self.handle_notify,
         }
 
     async def handle(
@@ -420,6 +432,85 @@ class NodeHandlers:
                 f" Awaiting approval from: {', '.join(cfg.approvers)}."
             )
         raise ApprovalPending(node.id, question)
+
+    async def handle_notify(
+        self,
+        user_id: str,
+        run: WorkflowRunRecord,
+        node: WorkflowNode,
+    ) -> dict[str, Any]:
+        """One notification attempt: resolve, render, send.
+
+        The channel instance comes from the injected
+        :class:`~agentscope.app.channel.ChannelClients` — never the
+        registry — so the same cached, unconnected instance the reply
+        deliveries use does the sending, and the factory (not this
+        handler) owns its lifecycle: a cached instance is shared by
+        concurrent runs, so it is never closed here. That is the
+        ``TeamsNotify`` tool's discipline — whoever builds a client
+        closes it — applied to the factory-built path.
+
+        Args:
+            user_id (`str`): The run's owner.
+            run (`WorkflowRunRecord`): The run the node belongs to.
+            node (`WorkflowNode`): The notify node to attempt.
+
+        Returns:
+            `dict[str, Any]`: ``{"channel": <record name or channel
+            type>, "sent": True}`` for the blackboard.
+
+        Raises:
+            `NodeFailure`: The channel is missing, disabled or of an
+                unsupported type; the template did not render; or the
+                platform refused the send.
+        """
+        cfg = node.config
+        if not isinstance(cfg, NotifyNodeConfig):
+            raise NodeFailure(f"Node {node.id!r} is not a notify node.")
+        channel = None
+        if self._channel_clients is not None:
+            channel = await self._channel_clients.get(cfg.channel_id)
+        if channel is None:
+            raise NodeFailure(
+                f"Node {node.id!r}: channel {cfg.channel_id!r} is "
+                "missing or disabled.",
+            )
+        text = _render(cfg.message_template, _blackboard(run))
+        try:
+            await channel.send_text(text)
+        except NotImplementedError as exc:
+            # A platform that kept the base default (Discord in v1):
+            # name the type so the builder user knows what to change.
+            raise NodeFailure(
+                f"Node {node.id!r}: channel type "
+                f"{channel.channel_type!r} does not support workflow "
+                "notifications.",
+            ) from exc
+        return {
+            "channel": await self._channel_name(cfg.channel_id, channel),
+            "sent": True,
+        }
+
+    async def _channel_name(
+        self,
+        channel_id: str,
+        channel: "ChannelBase",
+    ) -> str:
+        """The channel's record name, falling back to its type.
+
+        Args:
+            channel_id (`str`): The channel's record id.
+            channel (`ChannelBase`): The resolved channel instance,
+                whose ``channel_type`` names the platform when no
+                record name is set (or the record already vanished).
+
+        Returns:
+            `str`: The name the node output reports.
+        """
+        record = await self._storage.get_channel(channel_id)
+        if record is not None and record.name:
+            return record.name
+        return str(channel.channel_type)
 
     async def _run_body_once(
         self,

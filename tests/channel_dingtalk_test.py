@@ -806,6 +806,7 @@ class DingTalkChannelTest(  # pylint: disable=too-many-public-methods
             channel._config.model_dump(),
             {
                 "only_at_reply": True,
+                "default_target": "",
                 "show_tool_process": False,
                 "show_thinking": False,
                 "max_media_bytes": 10 * 1024 * 1024,
@@ -2025,3 +2026,50 @@ class DingTalkOpenAPITest(IsolatedAsyncioTestCase):
 
         self.assertFalse(sent)
         self.assertEqual(http.posts, [])
+
+
+class _RejectingTextOpenAPI(_FakeMediaOpenAPI):
+    """Record sends like the media fake, but answer them rejected."""
+
+    async def send_text(self, chat_id: str, text: str) -> bool:
+        self.text_calls.append((chat_id, text))
+        return False
+
+
+class DingTalkSendTextTest(IsolatedAsyncioTestCase):
+    """Workflow notifications: the configured default target."""
+
+    def _channel(self, default_target: str = "") -> DingTalkChannel:
+        return DingTalkChannel(
+            "ding-1",
+            DingTalkChannel.Credentials(
+                client_id="client-id",
+                client_secret="client-secret",
+            ),
+            DingTalkChannel.Config(default_target=default_target),
+        )
+
+    async def test_uses_the_configured_default_target(self) -> None:
+        channel = self._channel(default_target="group:cid-1")
+        openapi = _FakeMediaOpenAPI()
+        channel._openapi = cast(_DingTalkOpenAPI, openapi)
+
+        await channel.send_text("deploy done")
+
+        self.assertEqual(openapi.text_calls, [("group:cid-1", "deploy done")])
+
+    async def test_without_a_default_target_raises(self) -> None:
+        with self.assertRaises(ValueError) as ctx:
+            await self._channel().send_text("hi")
+        self.assertIn("default target", str(ctx.exception))
+
+    async def test_a_rejected_send_raises(self) -> None:
+        channel = self._channel(default_target="group:cid-1")
+        openapi = _RejectingTextOpenAPI()
+        channel._openapi = cast(_DingTalkOpenAPI, openapi)
+
+        with self.assertRaises(RuntimeError) as ctx:
+            await channel.send_text("hi")
+
+        self.assertEqual(openapi.text_calls, [("group:cid-1", "hi")])
+        self.assertIn("group:cid-1", str(ctx.exception))

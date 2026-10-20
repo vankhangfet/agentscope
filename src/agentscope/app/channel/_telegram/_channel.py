@@ -71,6 +71,13 @@ class TelegramChannel(ChannelBase):
             description="Chat IDs the bot answers; empty accepts every "
             "chat",
         )
+        default_chat_id: str = Field(
+            default="",
+            title="Default chat ID",
+            description="Chat that workflow notifications are sent to. "
+            "Empty falls back to the single allowed chat when exactly "
+            "one is configured.",
+        )
         show_tool_process: bool = Field(
             default=False,
             title="Show tool process",
@@ -265,12 +272,18 @@ class TelegramChannel(ChannelBase):
         if confirm is not None:
             await self._present_confirm(event, confirm)
 
-    async def _send_message(self, chat_id: str, text: str) -> None:
+    async def _send_message(self, chat_id: str, text: str) -> bool:
         """POST one plain-text ``sendMessage`` (no parse_mode in v1).
 
         Args:
             chat_id (`str`): The chat to send to.
             text (`str`): The message text, within the length cap.
+
+        Returns:
+            `bool`: Whether Telegram accepted the message. A rejection
+            is logged either way — replies stay best-effort, while
+            :meth:`send_text` turns the flag into an error so a
+            workflow notification can be retried.
         """
         client = await self._ensure_http()
         resp = await client.post(
@@ -284,6 +297,42 @@ class TelegramChannel(ChannelBase):
                 self._channel_id,
                 chat_id,
                 data.get("description", data),
+            )
+            return False
+        return True
+
+    async def send_text(self, text: str) -> None:
+        """Send one notification to the channel's default chat.
+
+        A notification has no inbound event, so the chat comes from the
+        channel's settings: the explicit ``default_chat_id``, else the
+        single configured ``allowed_chat_ids`` entry when the bot is
+        scoped to exactly one chat. Anything else is genuinely
+        ambiguous and raises rather than guessing.
+
+        Args:
+            text (`str`): The message text, within the length cap.
+
+        Raises:
+            `ValueError`: No default chat could be resolved.
+            `RuntimeError`: Telegram rejected the send.
+        """
+        chat_id = self._config.default_chat_id
+        if not chat_id:
+            allowed = self._config.allowed_chat_ids
+            if len(allowed) == 1:
+                chat_id = allowed[0]
+        if not chat_id:
+            raise ValueError(
+                f"Telegram channel '{self._channel_id}' has no default "
+                "chat for workflow notifications: set default_chat_id "
+                "in its settings, or scope it to exactly one allowed "
+                "chat.",
+            )
+        if not await self._send_message(chat_id, text):
+            raise RuntimeError(
+                f"Telegram rejected the notification to chat "
+                f"{chat_id!r}.",
             )
 
     async def _present_confirm(

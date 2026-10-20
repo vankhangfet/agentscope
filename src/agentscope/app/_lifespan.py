@@ -235,12 +235,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # The engine drives runs the service creates: it dispatches
         # ready nodes, persists every transition and parks on
         # approvals. Recovery runs before the app serves traffic so a
-        # crash never leaves a run silently stuck.
+        # crash never leaves a run silently stuck. The channel clients
+        # built above are what notify nodes send through — the same
+        # cached instances the reply deliveries use.
         workflow_engine = WorkflowEngine(
             storage=storage,
             message_bus=message_bus,
             chat_runner=chat_service.run,
             judge_agent_factory=await make_judge_agent_factory(storage),
+            channel_clients=channel_clients,
         )
         app.state.workflow_engine = workflow_engine
         # The run-workflow chat tool needs both, but the engine is

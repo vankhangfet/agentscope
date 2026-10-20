@@ -17,12 +17,17 @@ from agentscope.app.storage import (
     AgentData,
     AgentNodeConfig,
     AgentRecord,
+    ChannelBinding,
+    ChannelRecord,
     ChatModelConfig,
     ConditionBranch,
     ConditionNodeConfig,
     HumanApprovalNodeConfig,
     LoopNodeConfig,
+    NotifyNodeConfig,
     RedisStorage,
+    RoutingConfig,
+    SessionSettings,
     WorkflowGraph,
     WorkflowNode,
     WorkflowOrigin,
@@ -273,9 +278,13 @@ class NodeHandlersTest(IsolatedAsyncioTestCase):
         )
         self.judge = _FakeJudgeFactory(self.judge_id)
 
-    def _handlers(self, runner: ChatRunner) -> NodeHandlers:
+    def _handlers(
+        self,
+        runner: ChatRunner,
+        channel_clients: Any = None,
+    ) -> NodeHandlers:
         """The handler set under test."""
-        return NodeHandlers(self.storage, runner, self.judge)
+        return NodeHandlers(self.storage, runner, self.judge, channel_clients)
 
     async def _condition(
         self,
@@ -858,3 +867,152 @@ class NodeHandlersTest(IsolatedAsyncioTestCase):
 
         self.assertEqual(ctx.exception.node_id, "signoff")
         self.assertNotIn("Awaiting approval from", ctx.exception.question)
+
+
+class _FakeNotifyChannel:
+    """A channel capturing send_text calls; fails on demand."""
+
+    def __init__(self, error: BaseException | None = None) -> None:
+        self.channel_type = "fake"
+        self.sent: list[str] = []
+        self._error = error
+
+    async def send_text(self, text: str) -> None:
+        """Record the text, or raise the configured failure."""
+        if self._error is not None:
+            raise self._error
+        self.sent.append(text)
+
+
+class _FakeChannelClients:
+    """Stands in for ChannelClients: id -> channel, None when absent."""
+
+    def __init__(self, channels: dict[str, _FakeNotifyChannel]) -> None:
+        self._channels = channels
+        self.calls: list[str] = []
+
+    async def get(self, channel_id: str) -> _FakeNotifyChannel | None:
+        """Resolve one channel id the way the real factory does."""
+        self.calls.append(channel_id)
+        return self._channels.get(channel_id)
+
+
+class NotifyNodeTest(IsolatedAsyncioTestCase):
+    """One notify attempt: resolve the channel, render, send."""
+
+    async def asyncSetUp(self) -> None:
+        self.storage = make_storage()
+        self.judge = _FakeJudgeFactory("judge-1")
+
+    def _handlers(
+        self,
+        channel_clients: Any,
+        runner: ChatRunner | None = None,
+    ) -> NodeHandlers:
+        """The handler set under test."""
+        return NodeHandlers(
+            self.storage,
+            runner or _FakeRunner(self.storage),
+            self.judge,
+            channel_clients,
+        )
+
+    def _node(self, template: str = "Done: {{input.topic}}") -> WorkflowNode:
+        return WorkflowNode(
+            id="ping",
+            config=NotifyNodeConfig(
+                channel_id="ch-1",
+                message_template=template,
+            ),
+        )
+
+    async def test_renders_and_sends(self) -> None:
+        channel = _FakeNotifyChannel()
+        node = self._node()
+
+        output = await self._handlers(
+            _FakeChannelClients({"ch-1": channel}),
+        ).handle(USER, _run([node]), node)
+
+        self.assertEqual(output, {"channel": "fake", "sent": True})
+        self.assertEqual(channel.sent, ["Done: Q3 revenue"])
+
+    async def test_names_the_channel_record_when_there_is_one(self) -> None:
+        record = ChannelRecord(
+            id="ch-1",
+            channel_type="fake",
+            name="Ops room",
+            user_id=USER,
+            routing=RoutingConfig(
+                bindings=[ChannelBinding(match_value="*", agent_id="a")],
+            ),
+            session=SessionSettings(chat_model_config={"type": "x"}),
+        )
+        await self.storage.upsert_channel(record, platform_bot_id="bot-1")
+        channel = _FakeNotifyChannel()
+        node = self._node()
+
+        output = await self._handlers(
+            _FakeChannelClients({"ch-1": channel}),
+        ).handle(USER, _run([node]), node)
+
+        self.assertEqual(output, {"channel": "Ops room", "sent": True})
+
+    async def test_missing_channel_fails(self) -> None:
+        node = self._node()
+
+        with self.assertRaises(NodeFailure) as ctx:
+            await self._handlers(
+                _FakeChannelClients({}),
+            ).handle(USER, _run([node]), node)
+
+        self.assertIn("'ping'", str(ctx.exception))
+        self.assertIn("missing or disabled", str(ctx.exception))
+
+    async def test_unwired_channel_clients_fail(self) -> None:
+        """A process without the channel subsystem reports the same
+        missing-channel failure instead of crashing."""
+        node = self._node()
+
+        with self.assertRaises(NodeFailure) as ctx:
+            await self._handlers(None).handle(USER, _run([node]), node)
+
+        self.assertIn("missing or disabled", str(ctx.exception))
+
+    async def test_bad_template_path_fails_with_the_path(self) -> None:
+        node = self._node(template="Broken {{input.nope}}")
+
+        with self.assertRaises(NodeFailure) as ctx:
+            await self._handlers(
+                _FakeChannelClients({"ch-1": _FakeNotifyChannel()}),
+            ).handle(USER, _run([node]), node)
+
+        self.assertIn("input.nope", str(ctx.exception))
+
+    async def test_unsupported_channel_type_fails_by_name(self) -> None:
+        channel = _FakeNotifyChannel(
+            error=NotImplementedError("no workflow notifications"),
+        )
+        node = self._node()
+
+        with self.assertRaises(NodeFailure) as ctx:
+            await self._handlers(
+                _FakeChannelClients({"ch-1": channel}),
+            ).handle(USER, _run([node]), node)
+
+        self.assertIn("'fake'", str(ctx.exception))
+        self.assertIn(
+            "does not support workflow notifications",
+            str(ctx.exception),
+        )
+
+    async def test_send_failure_becomes_node_failure(self) -> None:
+        channel = _FakeNotifyChannel(error=RuntimeError("webhook down"))
+        node = self._node()
+
+        with self.assertRaises(NodeFailure) as ctx:
+            await self._handlers(
+                _FakeChannelClients({"ch-1": channel}),
+            ).handle(USER, _run([node]), node)
+
+        self.assertIn("webhook down", str(ctx.exception))

@@ -29,6 +29,7 @@ from agentscope.app.storage import (
     ConditionNodeConfig,
     HumanApprovalNodeConfig,
     NodeRunState,
+    NotifyNodeConfig,
     RedisStorage,
     RunStatus,
     WorkflowEdge,
@@ -235,6 +236,35 @@ class _FakeJudgeFactory:
         system_prompt: str,
     ) -> str:
         return self._agent_id
+
+
+class _FlakyNotifyChannel:
+    """Fails the first ``failures`` send_text calls, then succeeds."""
+
+    channel_type = "fake"
+
+    def __init__(self, failures: int) -> None:
+        self._failures = failures
+        self.sent: list[str] = []
+
+    async def send_text(self, text: str) -> None:
+        """One notification attempt."""
+        if self._failures > 0:
+            self._failures -= 1
+            raise RuntimeError("webhook down")
+        self.sent.append(text)
+
+
+class _SingleChannelClients:
+    """Stands in for ChannelClients, serving exactly one channel."""
+
+    def __init__(self, channel_id: str, channel: Any) -> None:
+        self._id = channel_id
+        self._channel = channel
+
+    async def get(self, channel_id: str) -> Any:
+        """Return the channel for its id, None for any other."""
+        return self._channel if channel_id == self._id else None
 
 
 class WorkflowEngineTest(IsolatedAsyncioTestCase):
@@ -587,6 +617,85 @@ class WorkflowEngineTest(IsolatedAsyncioTestCase):
         self.assertIn("kaput", done.data.error)
         self.assertIsNotNone(done.data.finished_at)
         self.assertEqual(await self.storage.list_active_workflow_runs(), [])
+
+    async def test_notify_retry_within_budget(self) -> None:
+        """Two failed sends then a delivery with max_retries=2: three
+        attempts, node SUCCEEDED, the sent text on the blackboard."""
+        channel = _FlakyNotifyChannel(failures=2)
+        graph = WorkflowGraph(
+            nodes=[
+                WorkflowNode(
+                    id="ping",
+                    config=NotifyNodeConfig(
+                        channel_id="ch-1",
+                        message_template="Done: {{input.topic}}",
+                        max_retries=2,
+                    ),
+                ),
+            ],
+            edges=[],
+        )
+        run = await self._seed_run(_run(graph))
+        engine = WorkflowEngine(
+            storage=self.storage,
+            message_bus=self.bus,
+            chat_runner=self.runner,
+            judge_agent_factory=_FakeJudgeFactory(self.judge_id),
+            channel_clients=_SingleChannelClients("ch-1", channel),
+        )
+        try:
+            await engine.dispatch(USER, run.id)
+            done = await self._poll(run.id, {RunStatus.SUCCEEDED})
+        finally:
+            await engine.close()
+
+        state = self._state(done, "ping")
+        self.assertEqual(state.status, RunStatus.SUCCEEDED)
+        self.assertEqual(state.attempts, 3)
+        self.assertIsNone(state.error)
+        self.assertEqual(channel.sent, ["Done: Q3 revenue"])
+        self.assertEqual(
+            done.data.context["ping"],
+            {"channel": "fake", "sent": True},
+        )
+
+    async def test_notify_retry_exhausted_fails_run(self) -> None:
+        """max_retries=0 and a dead webhook: the node and the run both
+        FAIL, mirroring the agent node's budget semantics."""
+        channel = _FlakyNotifyChannel(failures=99)
+        graph = WorkflowGraph(
+            nodes=[
+                WorkflowNode(
+                    id="ping",
+                    config=NotifyNodeConfig(
+                        channel_id="ch-1",
+                        message_template="Done: {{input.topic}}",
+                        max_retries=0,
+                    ),
+                ),
+            ],
+            edges=[],
+        )
+        run = await self._seed_run(_run(graph))
+        engine = WorkflowEngine(
+            storage=self.storage,
+            message_bus=self.bus,
+            chat_runner=self.runner,
+            judge_agent_factory=_FakeJudgeFactory(self.judge_id),
+            channel_clients=_SingleChannelClients("ch-1", channel),
+        )
+        try:
+            await engine.dispatch(USER, run.id)
+            done = await self._poll(run.id, {RunStatus.FAILED})
+        finally:
+            await engine.close()
+
+        state = self._state(done, "ping")
+        self.assertEqual(state.status, RunStatus.FAILED)
+        self.assertEqual(state.attempts, 1)
+        self.assertIn("webhook down", state.error)
+        self.assertIn("'ping'", done.data.error)
+        self.assertEqual(channel.sent, [])
 
     # -- 5.-8. approval park and verdicts ----------------------------
 
