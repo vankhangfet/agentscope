@@ -171,7 +171,9 @@ class WorkflowService:
         user_id: str,
         graph: WorkflowGraph,
     ) -> list[str]:
-        """Structural checks plus agent and channel existence.
+        """Structural checks plus agent and channel existence; an
+        empty ``agent_id``/``channel_id`` (a template slot left
+        unmapped) is a problem naming the node.
 
         Args:
             user_id (`str`): The owner whose agents and channels are
@@ -182,17 +184,23 @@ class WorkflowService:
             `list[str]`: Human-readable problems; empty means valid.
         """
         problems = validate_workflow_graph(graph)
-        agent_ids = {
-            node.config.agent_id
-            for node in graph.nodes
-            if isinstance(node.config, AgentNodeConfig)
-        }
-        agent_ids.update(
-            node.config.body_agent_id
-            for node in graph.nodes
-            if isinstance(node.config, LoopNodeConfig)
-            and node.config.body_agent_id
-        )
+        agent_ids: set[str] = set()
+        for node in graph.nodes:
+            if isinstance(node.config, AgentNodeConfig):
+                if not node.config.agent_id:
+                    # A template slot left unmapped: named per node so
+                    # the builder can point at it, unlike an unknown
+                    # id (which is reported once per id).
+                    problems.append(
+                        f"Node {node.id!r} needs an agent",
+                    )
+                else:
+                    agent_ids.add(node.config.agent_id)
+            if (
+                isinstance(node.config, LoopNodeConfig)
+                and node.config.body_agent_id
+            ):
+                agent_ids.add(node.config.body_agent_id)
         for agent_id in sorted(agent_ids):
             if await self._storage.get_agent(user_id, agent_id) is None:
                 problems.append(
@@ -226,6 +234,13 @@ class WorkflowService:
             if not isinstance(node.config, NotifyNodeConfig):
                 continue
             channel_id = node.config.channel_id
+            if not channel_id:
+                # A template slot left unmapped, like the agent one in
+                # ``_validate``: named per node, never a lookup.
+                problems.append(
+                    f"Node {node.id!r} needs a channel",
+                )
+                continue
             record = await self._storage.get_channel(channel_id)
             if record is None or record.user_id != user_id:
                 problems.append(

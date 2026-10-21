@@ -40,6 +40,13 @@ from ._toolkit import get_toolkit
 from ._download_token import sign_download_token, verify_download_token
 from ._workflow import WorkflowService
 from ._workflow_engine import WorkflowEngine, make_judge_agent_factory
+from ._workflow_templates import (
+    TEMPLATES,
+    TEMPLATE_CATEGORIES,
+    TemplateSlot,
+    WorkflowTemplate,
+    template_view,
+)
 from ._workspace import GitStatus, WorkspaceService, WorkspaceStatus
 
 __all__ = [
@@ -73,7 +80,12 @@ __all__ = [
     "WorkspaceService",
     "WorkflowEngine",
     "WorkflowService",
+    "WorkflowTemplate",
+    "TEMPLATE_CATEGORIES",
+    "TEMPLATES",
+    "TemplateSlot",
     "make_judge_agent_factory",
+    "template_view",
     "sign_download_token",
     "verify_download_token",
     "WorkspaceStatus",

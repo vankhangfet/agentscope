@@ -100,3 +100,60 @@ class ApproveRequest(BaseModel):
         default="",
         description="Optional note recorded with the verdict.",
     )
+
+
+class TemplateSlotView(BaseModel):
+    """One reference an install must map to a real record."""
+
+    node_id: str = Field(
+        description="The node whose config carries the empty reference.",
+    )
+
+    label: str = Field(
+        description="What the mapped record is for — the agent's job, "
+        "or the channel's role in the flow.",
+    )
+
+    hint: str = Field(
+        default="",
+        description="Extra guidance shown under the label.",
+    )
+
+
+class WorkflowTemplateView(BaseModel):
+    """One catalog entry, as listed by ``GET /workflow/templates``."""
+
+    id: str = Field(description="The template id.")
+
+    name: str = Field(description="The name the created workflow takes.")
+
+    description: str = Field(description="What the template does.")
+
+    category: str = Field(description="The gallery group it shows under.")
+
+    graph: dict = Field(
+        description=(
+            "The full graph with its slots empty: the agent nodes' "
+            "``agent_id`` and the notify nodes' ``channel_id`` are "
+            "``\"\"`` and must be mapped before POSTing the graph to "
+            "``/workflow/`` — the save is strict about empty ones."
+        ),
+    )
+
+    agent_slots: list[TemplateSlotView] = Field(
+        description="Every agent node, with what it is for.",
+    )
+
+    channel_slots: list[TemplateSlotView] = Field(
+        description="Every notify node, with what it is for.",
+    )
+
+
+class ListWorkflowTemplatesResponse(BaseModel):
+    """The body of the template catalog listing."""
+
+    templates: list[WorkflowTemplateView] = Field(
+        description="The catalog entries.",
+    )
+
+    total: int = Field(description="How many entries the catalog holds.")

@@ -20,14 +20,21 @@ from ._schema import (
     CreateWorkflowRequest,
     CreateWorkflowResponse,
     ListRunsResponse,
+    ListWorkflowTemplatesResponse,
     ListWorkflowsResponse,
     RunDetailResponse,
     StartRunRequest,
     StartRunResponse,
     UpdateWorkflowRequest,
     WorkflowDetailResponse,
+    WorkflowTemplateView,
 )
-from .._service import WorkflowEngine, WorkflowService
+from .._service import (
+    TEMPLATES,
+    WorkflowEngine,
+    WorkflowService,
+    template_view,
+)
 
 workflow_router = APIRouter(
     prefix="/workflow",
@@ -119,6 +126,33 @@ async def list_workflows(
     """
     workflows = await service.list_workflows(user_id)
     return ListWorkflowsResponse(workflows=workflows, total=len(workflows))
+
+
+# Declared before the ``/{workflow_id}`` routes, like the MCP router's
+# ``/presets``: a literal path segment must not risk being captured as
+# someone's record id.
+@workflow_router.get(
+    "/templates",
+    response_model=ListWorkflowTemplatesResponse,
+    summary="List the built-in workflow templates",
+)
+async def list_workflow_templates() -> ListWorkflowTemplatesResponse:
+    """List the template catalog the gallery installs from.
+
+    Static data with nothing per-user in it — the agent and channel
+    references are empty slots the install dialog maps before the
+    strict create — so it takes no auth and no storage, exactly like
+    the MCP preset catalog.
+
+    Returns:
+        `ListWorkflowTemplatesResponse`: The catalog entries.
+    """
+    return ListWorkflowTemplatesResponse(
+        templates=[
+            WorkflowTemplateView(**template_view(t)) for t in TEMPLATES
+        ],
+        total=len(TEMPLATES),
+    )
 
 
 # Run routes precede ``/{workflow_id}`` so "runs" is never captured
