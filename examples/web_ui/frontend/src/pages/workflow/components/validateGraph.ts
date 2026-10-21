@@ -200,6 +200,17 @@ export function validateGraph(graph: WorkflowGraph): string[] {
 						`'${node.config.timeout_branch}' has no matching outgoing edge`,
 				);
 			}
+		} else if (node.config.type === 'notify') {
+			// The node ships with both references empty; these keep Save
+			// disabled until the form fills them — the client mirror of
+			// the service's strict empty-reference checks, in the same
+			// bare-id `<type> node <id>` wording as the loop check above.
+			if (!node.config.channel_id) {
+				problems.push(`Notify node ${node.id} needs a channel`);
+			}
+			if (!(node.config.message_template ?? '').trim()) {
+				problems.push(`Notify node ${node.id} needs a message template`);
+			}
 		}
 	}
 

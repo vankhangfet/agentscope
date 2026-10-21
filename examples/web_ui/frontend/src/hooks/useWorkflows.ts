@@ -1,7 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { createWorkflow, deleteWorkflow, getWorkflow, listWorkflows, updateWorkflow } from '../api';
-import type { Workflow, WorkflowData } from '../api';
+import {
+	createWorkflow,
+	deleteWorkflow,
+	getWorkflow,
+	listWorkflowTemplates,
+	listWorkflows,
+	updateWorkflow,
+} from '../api';
+import type { Workflow, WorkflowData, WorkflowTemplateView } from '../api';
 
 /**
  * Cache key for the workflow list. Exported so any write outside these
@@ -12,6 +19,32 @@ export const WORKFLOWS_KEY = ['workflows'];
 
 /** Stable empty list, so `workflows` keeps its identity between renders. */
 const NO_WORKFLOWS: Workflow[] = [];
+
+/** Stable empty list, so `templates` keeps its identity between renders. */
+const NO_TEMPLATES: WorkflowTemplateView[] = [];
+
+/**
+ * The built-in workflow templates from `GET /workflow/templates`.
+ *
+ * Compiled into the server, so the catalog cannot change while it is
+ * up — hence `staleTime: Infinity`, the `useMcpPresets` pattern: every
+ * gallery open after the first is a cache read. (Installing a template
+ * writes a workflow, not the catalog, so there is no invalidation.)
+ */
+export function useWorkflowTemplates() {
+	const { data, isPending, error, refetch } = useQuery({
+		queryKey: ['workflow-templates'],
+		queryFn: async () => (await listWorkflowTemplates()).templates,
+		staleTime: Infinity,
+	});
+
+	return {
+		templates: data ?? NO_TEMPLATES,
+		loading: isPending,
+		error: error as Error | null,
+		refetch: () => void refetch(),
+	};
+}
 
 /**
  * Manages workflow definitions.

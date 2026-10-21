@@ -20,7 +20,8 @@ A FastAPI-based, multi-user agent platform built with AgentScope 2.0: chat agent
 - Test button verifies each server connection; the agent form's tool picker lists the available tools per server
 
 **Workflows**
-- Build DAGs on a drag-and-drop canvas: agent nodes, condition branches, loops, and approval gates
+- Build DAGs on a drag-and-drop canvas: agent nodes, condition branches, loops, approval gates, and notify nodes that send rendered messages to your channels
+- Start from built-in templates (channel notification, product design, news digest, Vietcombank FX rates) and map their agent/channel slots to your records
 - Validate graphs client-side, run them manually, on a schedule, via REST API, or as a chat tool
 - Watch runs live (per-node status, outputs) and approve or cancel from the UI
 

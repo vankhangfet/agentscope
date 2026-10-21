@@ -1,16 +1,29 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
-import { Copy, Ellipsis, History, Pen, Play, Plus, Trash2, Workflow } from 'lucide-react';
+import {
+	ChevronDown,
+	Copy,
+	Ellipsis,
+	History,
+	LayoutTemplate,
+	Pen,
+	Play,
+	Plus,
+	Trash2,
+	Workflow,
+} from 'lucide-react';
 import * as React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 
 import { RunWorkflowDialog } from './components/RunWorkflowDialog';
+import { TemplatesDialog } from './components/TemplatesDialog';
 import type { Workflow as WorkflowRecord } from '@/api';
 import { getWorkflow } from '@/api';
 import { DeleteDialog } from '@/components/dialog/DeleteDialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { ButtonGroup } from '@/components/ui/button-group';
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -176,6 +189,7 @@ export function WorkflowPage() {
 	const [runOpen, setRunOpen] = React.useState(false);
 	const [runWorkflowId, setRunWorkflowId] = React.useState<string | undefined>(undefined);
 	const [duplicatingId, setDuplicatingId] = React.useState<string | null>(null);
+	const [templatesOpen, setTemplatesOpen] = React.useState(false);
 
 	// No id means "new workflow" — the builder prompts for a name.
 	const openBuilder = (workflowId?: string) =>
@@ -213,10 +227,32 @@ export function WorkflowPage() {
 							{t('workflow.subtitle')}
 						</div>
 					</div>
-					<Button size="sm" onClick={() => openBuilder()}>
-						<Plus />
-						{t('workflow.list.new')}
-					</Button>
+					{/* Split "New" button: the primary action opens the blank
+					    builder as before; the chevron offers the template
+					    gallery as the second starting point. */}
+					<ButtonGroup>
+						<Button size="sm" onClick={() => openBuilder()}>
+							<Plus />
+							{t('workflow.list.new')}
+						</Button>
+						<DropdownMenu>
+							<DropdownMenuTrigger asChild>
+								<Button
+									size="sm"
+									className="px-2"
+									aria-label={t('workflow.list.newMore')}
+								>
+									<ChevronDown />
+								</Button>
+							</DropdownMenuTrigger>
+							<DropdownMenuContent align="end">
+								<DropdownMenuItem onClick={() => setTemplatesOpen(true)}>
+									<LayoutTemplate />
+									{t('workflow.list.newFromTemplate')}
+								</DropdownMenuItem>
+							</DropdownMenuContent>
+						</DropdownMenu>
+					</ButtonGroup>
 				</div>
 				<Separator />
 
@@ -257,6 +293,14 @@ export function WorkflowPage() {
 								<Button variant="outline" size="sm" onClick={() => openBuilder()}>
 									<Plus />
 									{t('workflow.list.create')}
+								</Button>
+								<Button
+									variant="outline"
+									size="sm"
+									onClick={() => setTemplatesOpen(true)}
+								>
+									<LayoutTemplate />
+									{t('workflow.list.useTemplate')}
 								</Button>
 							</EmptyContent>
 						</Empty>
@@ -315,6 +359,8 @@ export function WorkflowPage() {
 				open={runOpen}
 				onOpenChange={setRunOpen}
 			/>
+
+			<TemplatesDialog open={templatesOpen} onOpenChange={setTemplatesOpen} />
 		</div>
 	);
 }

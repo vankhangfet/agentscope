@@ -5,7 +5,7 @@ import * as React from 'react';
 import { nodeTypes } from './nodeTypes';
 import { THEME_VARS } from './rfTheme';
 import { edgeSatisfied, nodeStatus, readyNodeIds } from './runReadiness';
-import type { AgentView, NodeRunState, WorkflowGraph } from '@/api';
+import type { AgentView, ChannelRecord, NodeRunState, WorkflowGraph } from '@/api';
 
 interface RunGraphViewProps {
 	/** The run's graph snapshot. */
@@ -14,6 +14,8 @@ interface RunGraphViewProps {
 	nodeStates: Record<string, NodeRunState>;
 	/** Agent list so summaries match the builder's. */
 	agents: AgentView[];
+	/** Channel list, for the notify cards' summaries. */
+	channels: ChannelRecord[];
 	/** The panel-selected node, mirrored onto the canvas. */
 	selectedNodeId: string | null;
 	onSelectNode: (nodeId: string | null) => void;
@@ -31,6 +33,7 @@ export function RunGraphView({
 	graph,
 	nodeStates,
 	agents,
+	channels,
 	selectedNodeId,
 	onSelectNode,
 }: RunGraphViewProps) {
@@ -45,11 +48,12 @@ export function RunGraphView({
 				data: {
 					config: node.config,
 					agents,
+					channels,
 					status: nodeStatus(nodeStates, node.id),
 				},
 				selected: node.id === selectedNodeId,
 			})),
-		[graph.nodes, nodeStates, agents, selectedNodeId],
+		[graph.nodes, nodeStates, agents, channels, selectedNodeId],
 	);
 
 	const edges = React.useMemo<Edge[]>(

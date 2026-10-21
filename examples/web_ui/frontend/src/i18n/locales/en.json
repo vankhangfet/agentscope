@@ -633,6 +633,9 @@
 		"list": {
 			"label": "Workflows",
 			"new": "New workflow",
+			"newMore": "More create options",
+			"newFromTemplate": "From template",
+			"useTemplate": "Use a template",
 			"create": "Create workflow",
 			"emptyTitle": "No workflows",
 			"emptyDescription": "Create your first workflow to automate multi-step agent tasks.",
@@ -652,6 +655,25 @@
 				"viewRuns": "View runs",
 				"delete": "Delete"
 			}
+		},
+		"templates": {
+			"title": "Start from a template",
+			"description": "Pick a shipped starting point; you'll map its agents and channels next.",
+			"loadFailed": "Couldn't load templates",
+			"retry": "Retry",
+			"back": "Back",
+			"nodes_one": "{{count}} node",
+			"nodes_other": "{{count}} nodes",
+			"agentSlots_one": "{{count}} agent",
+			"agentSlots_other": "{{count}} agents",
+			"channelSlots_one": "{{count}} channel",
+			"channelSlots_other": "{{count}} channels",
+			"nameLabel": "Workflow name",
+			"agentTitle": "Agents",
+			"channelTitle": "Channels",
+			"noSlots": "This template needs no mapping — create it as is.",
+			"create": "Create workflow",
+			"creating": "Creating…"
 		},
 		"builder": {
 			"title": "Workflow Builder",
@@ -688,6 +710,10 @@
 				"human_approval": {
 					"name": "Approval",
 					"description": "Wait for a human decision"
+				},
+				"notify": {
+					"name": "Notify",
+					"description": "Send a message to a channel"
 				}
 			},
 			"config": {
@@ -735,6 +761,14 @@
 					"timeoutCustom": "Follow a branch",
 					"customBranchPlaceholder": "Branch label",
 					"timeoutBranchHint": "A custom branch must match an outgoing edge's label."
+				},
+				"notify": {
+					"channel": "Channel",
+					"channelPlaceholder": "Select a channel",
+					"channelEmptyHint": "No enabled channels — create a channel first.",
+					"messageTemplate": "Message template",
+					"messageTemplateHint": "Mustache-style template over the run blackboard; the rendered text is sent to the channel. Telegram caps one message at 4096 characters.",
+					"maxRetries": "Max retries"
 				}
 			}
 		},

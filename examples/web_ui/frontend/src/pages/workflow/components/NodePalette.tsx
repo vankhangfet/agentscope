@@ -10,7 +10,7 @@ interface NodePaletteProps {
 	onAdd: (kind: NodeKind) => void;
 }
 
-const KINDS: NodeKind[] = ['agent', 'condition', 'loop', 'human_approval'];
+const KINDS: NodeKind[] = ['agent', 'condition', 'loop', 'human_approval', 'notify'];
 
 /**
  * The left-hand list of addable node types. Each entry is both a

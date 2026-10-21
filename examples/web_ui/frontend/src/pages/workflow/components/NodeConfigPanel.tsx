@@ -6,14 +6,17 @@ import { NODE_ID_PATTERN } from './validateGraph';
 import type {
 	AgentNodeConfig,
 	AgentView,
+	ChannelRecord,
 	ChatModelConfig,
 	ConditionNodeConfig,
 	HumanApprovalNodeConfig,
 	LoopNodeConfig,
 	NodeConfig,
+	NotifyNodeConfig,
 	WorkflowNode,
 } from '@/api';
 import { AgentSelect } from '@/components/select/AgentSelect';
+import { ChannelSelect } from '@/components/select/ChannelSelect';
 import { LlmSelect } from '@/components/select/LlmSelect';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -35,6 +38,8 @@ import { useTranslation } from '@/i18n/useI18n';
 interface NodeConfigPanelProps {
 	node: WorkflowNode;
 	agents: AgentView[];
+	/** The channel list, for the notify form's picker. */
+	channels: ChannelRecord[];
 	/** Rename the node; the page rewrites edge endpoints and rejects
 	 * invalid or colliding ids (the input is controlled by `node.id`). */
 	onRename: (nextId: string) => void;
@@ -79,6 +84,7 @@ function NumberField({
 export function NodeConfigPanel({
 	node,
 	agents,
+	channels,
 	onRename,
 	onConfigChange,
 	onClose,
@@ -143,6 +149,9 @@ export function NodeConfigPanel({
 				)}
 				{node.config.type === 'human_approval' && (
 					<ApprovalForm config={node.config} onPatch={patch} />
+				)}
+				{node.config.type === 'notify' && (
+					<NotifyForm config={node.config} channels={channels} onPatch={patch} />
 				)}
 			</div>
 		</aside>
@@ -494,6 +503,63 @@ function ApprovalForm({
 					{t('workflow.builder.config.approval.timeoutBranchHint')}
 				</p>
 			</div>
+		</>
+	);
+}
+
+function NotifyForm({
+	config,
+	channels,
+	onPatch,
+}: {
+	config: NotifyNodeConfig;
+	channels: ChannelRecord[];
+	onPatch: (partial: Partial<NotifyNodeConfig>) => void;
+}) {
+	const { t } = useTranslation();
+	const hasEnabled = channels.some((c) => c.enabled);
+
+	return (
+		<>
+			<div className="space-y-1.5">
+				<Label className="text-xs">{t('workflow.builder.config.notify.channel')}</Label>
+				{hasEnabled ? (
+					<ChannelSelect
+						className="w-full"
+						channels={channels}
+						value={config.channel_id || null}
+						placeholder={t('workflow.builder.config.notify.channelPlaceholder')}
+						onChange={(channel_id) => onPatch({ channel_id })}
+					/>
+				) : (
+					// No enabled channels: nothing to pick — say so where the
+					// picker would sit, instead of an empty dropdown.
+					<p className="text-[11px] leading-snug text-muted-foreground">
+						{t('workflow.builder.config.notify.channelEmptyHint')}
+					</p>
+				)}
+			</div>
+			<div className="space-y-1.5">
+				<Label className="text-xs">{t('workflow.builder.config.notify.messageTemplate')}</Label>
+				<Textarea
+					rows={4}
+					className="font-mono text-xs"
+					spellCheck={false}
+					placeholder="{{input.message}}"
+					value={config.message_template ?? ''}
+					onChange={(e) => onPatch({ message_template: e.target.value })}
+				/>
+				<p className="text-[11px] leading-snug text-muted-foreground">
+					{t('workflow.builder.config.notify.messageTemplateHint')}
+				</p>
+			</div>
+			<NumberField
+				label={t('workflow.builder.config.notify.maxRetries')}
+				value={config.max_retries}
+				min={0}
+				max={10}
+				onChange={(max_retries) => onPatch({ max_retries })}
+			/>
 		</>
 	);
 }

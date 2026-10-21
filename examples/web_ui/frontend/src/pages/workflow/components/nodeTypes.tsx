@@ -4,13 +4,13 @@
  * please fast refresh would separate the registry from its entries. */
 import type { Node, NodeProps } from '@xyflow/react';
 import { Handle, Position } from '@xyflow/react';
-import { Bot, GitBranch, Repeat, UserCheck } from 'lucide-react';
+import { Bot, GitBranch, Repeat, Send, UserCheck } from 'lucide-react';
 
-import type { AgentView, NodeConfig, RunStatus } from '@/api';
+import type { AgentView, ChannelRecord, NodeConfig, RunStatus } from '@/api';
 import { cn } from '@/lib/utils';
 
-/** The four node kinds the palette can add (RF node type == config type). */
-export type NodeKind = 'agent' | 'condition' | 'loop' | 'human_approval';
+/** The node kinds the palette can add (RF node type == config type). */
+export type NodeKind = 'agent' | 'condition' | 'loop' | 'human_approval' | 'notify';
 
 /** Data every builder node carries: its config plus the agent list the
  * summaries render agent names from (passed by value to keep the node
@@ -20,6 +20,8 @@ export type NodeKind = 'agent' | 'condition' | 'loop' | 'human_approval';
 export type BuilderNodeData = {
 	config: NodeConfig;
 	agents: AgentView[];
+	/** Same-by-value channel list, for the notify cards' summaries. */
+	channels?: ChannelRecord[];
 	/**
 	 * The node's run status — set ONLY by the read-only run view; the
 	 * builder passes none and the decoration below stays dormant.
@@ -45,6 +47,7 @@ export const NODE_META: Record<
 		accent: 'bg-violet-500',
 		ring: 'ring-violet-500/40',
 	},
+	notify: { icon: Send, accent: 'bg-rose-500', ring: 'ring-rose-500/40' },
 };
 
 /** Shared house-styled look for every handle dot. */
@@ -174,6 +177,12 @@ function agentName(agents: AgentView[], agentId: string): string {
 	return agents.find((a) => a.id === agentId)?.data.name ?? agentId;
 }
 
+/** Same resolution as `agentName`, over the channel list (name ?? id). */
+function channelName(channels: ChannelRecord[], channelId: string): string {
+	if (!channelId) return '—';
+	return channels.find((c) => c.id === channelId)?.name ?? channelId;
+}
+
 function AgentNode(props: NodeProps<BuilderNode<'agent'>>) {
 	const { config, agents, status } = props.data;
 	const hint = config.prompt_template?.trim() || '{{input}}';
@@ -246,10 +255,26 @@ function ApprovalNode(props: NodeProps<BuilderNode<'human_approval'>>) {
 	);
 }
 
+function NotifyNode(props: NodeProps<BuilderNode<'notify'>>) {
+	const { config, channels, status } = props.data;
+	const hint = config.message_template?.trim() || '{{input.message}}';
+	return (
+		<NodeCard
+			id={props.id}
+			config={config}
+			selected={props.selected}
+			status={status}
+			summary={`${channelName(channels ?? [], config.channel_id)} · ${hint}`}
+			branchLabels={[]}
+		/>
+	);
+}
+
 /** Registry handed to ReactFlow's `nodeTypes`; keys are config types. */
 export const nodeTypes = {
 	agent: AgentNode,
 	condition: ConditionNode,
 	loop: LoopNode,
 	human_approval: ApprovalNode,
+	notify: NotifyNode,
 };

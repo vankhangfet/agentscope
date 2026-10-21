@@ -633,6 +633,9 @@
 		"list": {
 			"label": "工作流",
 			"new": "新建工作流",
+			"newMore": "更多创建选项",
+			"newFromTemplate": "从模板创建",
+			"useTemplate": "使用模板",
 			"create": "创建工作流",
 			"emptyTitle": "暂无工作流",
 			"emptyDescription": "创建第一个工作流，自动化多步骤智能体任务。",
@@ -652,6 +655,25 @@
 				"viewRuns": "查看运行",
 				"delete": "删除"
 			}
+		},
+		"templates": {
+			"title": "从模板开始",
+			"description": "选择一个内置起点，接下来将模板中的智能体和渠道映射为你的配置。",
+			"loadFailed": "无法加载模板",
+			"retry": "重试",
+			"back": "返回",
+			"nodes_one": "{{count}} 个节点",
+			"nodes_other": "{{count}} 个节点",
+			"agentSlots_one": "{{count}} 个智能体",
+			"agentSlots_other": "{{count}} 个智能体",
+			"channelSlots_one": "{{count}} 个渠道",
+			"channelSlots_other": "{{count}} 个渠道",
+			"nameLabel": "工作流名称",
+			"agentTitle": "智能体",
+			"channelTitle": "渠道",
+			"noSlots": "此模板无需映射，可直接创建。",
+			"create": "创建工作流",
+			"creating": "创建中…"
 		},
 		"builder": {
 			"title": "工作流编辑器",
@@ -688,6 +710,10 @@
 				"human_approval": {
 					"name": "审批",
 					"description": "等待人工决策"
+				},
+				"notify": {
+					"name": "通知",
+					"description": "向渠道发送一条消息"
 				}
 			},
 			"config": {
@@ -735,6 +761,14 @@
 					"timeoutCustom": "跳转分支",
 					"customBranchPlaceholder": "分支标签",
 					"timeoutBranchHint": "自定义分支必须与某条出边的标签一致。"
+				},
+				"notify": {
+					"channel": "渠道",
+					"channelPlaceholder": "选择渠道",
+					"channelEmptyHint": "暂无已启用的渠道——请先创建渠道。",
+					"messageTemplate": "消息模板",
+					"messageTemplateHint": "基于运行黑板的模板语法（双花括号路径）；渲染后的文本会发送到渠道。Telegram 单条消息上限 4096 字符。",
+					"maxRetries": "最大重试次数"
 				}
 			}
 		},

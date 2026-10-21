@@ -80,12 +80,28 @@ export interface HumanApprovalNodeConfig {
 	timeout_branch?: string;
 }
 
+/** Send one rendered message to a configured channel. */
+export interface NotifyNodeConfig {
+	type: 'notify';
+	/** The channel this node notifies (an enabled channel record id). */
+	channel_id: string;
+	/**
+	 * Mustache-style template over the run blackboard, e.g.
+	 * `{{nodes.researcher.output.text}}`; the rendered text is sent to
+	 * the channel. Telegram caps one message at 4096 characters.
+	 */
+	message_template: string;
+	/** Retries before the node fails the run (0-10). */
+	max_retries?: number;
+}
+
 /** A node's config, discriminated on `type`. */
 export type NodeConfig =
 	| AgentNodeConfig
 	| ConditionNodeConfig
 	| LoopNodeConfig
-	| HumanApprovalNodeConfig;
+	| HumanApprovalNodeConfig
+	| NotifyNodeConfig;
 
 /** One step on the canvas. */
 export interface WorkflowNode {
@@ -160,6 +176,45 @@ export interface UpdateWorkflowRequest {
 
 export interface ListWorkflowsResponse {
 	workflows: Workflow[];
+	total: number;
+}
+
+// ─── Template catalog ─────────────────────────────────────────────────────────
+
+/** One reference a template leaves empty and an install must map to a
+ * real record before creating the workflow. */
+export interface TemplateSlot {
+	/** The node whose config carries the empty reference. */
+	node_id: string;
+	/** What the mapped record is for — the agent's job, or the
+	 * channel's role in the flow. */
+	label: string;
+	/** Extra guidance shown under the label. */
+	hint?: string;
+}
+
+/** One catalog entry from `GET /workflow/templates`. */
+export interface WorkflowTemplateView {
+	id: string;
+	/** The name the created workflow starts from. */
+	name: string;
+	description: string;
+	/** The gallery group it shows under (e.g. "Digest"). */
+	category: string;
+	/**
+	 * The full graph with its slots empty: agent nodes' `agent_id` and
+	 * notify nodes' `channel_id` are `""` and must be mapped before
+	 * posting the graph to `POST /workflow/` — the save is strict.
+	 */
+	graph: WorkflowGraph;
+	/** Every agent node in the graph, with what it is for. */
+	agent_slots: TemplateSlot[];
+	/** Every notify node in the graph, with what it is for. */
+	channel_slots: TemplateSlot[];
+}
+
+export interface ListWorkflowTemplatesResponse {
+	templates: WorkflowTemplateView[];
 	total: number;
 }
 
@@ -334,6 +389,14 @@ export interface RunStreamHandlers {
 
 export function listWorkflows() {
 	return client.get<ListWorkflowsResponse>('/workflow/');
+}
+
+/**
+ * The built-in template catalog. Static, auth-free server data (the
+ * MCP-presets pattern), so callers cache it indefinitely.
+ */
+export function listWorkflowTemplates() {
+	return client.get<ListWorkflowTemplatesResponse>('/workflow/templates');
 }
 
 export function getWorkflow(workflowId: string) {
@@ -523,6 +586,7 @@ export async function openRunStream(
  * that prefer it over the standalone functions above. */
 export const workflowApi = {
 	list: listWorkflows,
+	listTemplates: listWorkflowTemplates,
 	get: getWorkflow,
 	create: createWorkflow,
 	update: updateWorkflow,

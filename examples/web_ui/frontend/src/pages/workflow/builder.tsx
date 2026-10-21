@@ -34,6 +34,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
 import { useAgents } from '@/hooks/useAgents';
+import { useChannels } from '@/hooks/useChannels';
 import {
 	useCreateWorkflow,
 	useUpdateWorkflow,
@@ -78,6 +79,11 @@ function defaultConfig(kind: NodeKind): NodeConfig {
 				timeout_hours: 24,
 				timeout_branch: 'fail',
 			};
+		case 'notify':
+			// Both references start empty — validation flags them until
+			// the form fills them in, keeping a fresh node save-blocked
+			// exactly like the strict server-side checks demand.
+			return { type: 'notify', channel_id: '', message_template: '', max_retries: 2 };
 	}
 }
 
@@ -129,6 +135,7 @@ function Builder() {
 	const workflowId = routeId ? routeId : null;
 	const { workflow, loading, error } = useWorkflow(workflowId);
 	const { agents } = useAgents();
+	const { channels } = useChannels();
 	const createWorkflow = useCreateWorkflow();
 	const updateWorkflow = useUpdateWorkflow();
 	const { screenToFlowPosition } = useReactFlow();
@@ -309,10 +316,10 @@ function Builder() {
 				id: n.id,
 				type: n.config.type,
 				position: n.position ?? { x: 0, y: 0 },
-				data: { config: n.config, agents },
+				data: { config: n.config, agents, channels },
 				selected: selectedNodeIds.includes(n.id),
 			})),
-		[graph.nodes, agents, selectedNodeIds],
+		[graph.nodes, agents, channels, selectedNodeIds],
 	);
 
 	const rfEdges = React.useMemo<Edge[]>(
@@ -536,6 +543,7 @@ function Builder() {
 						<NodeConfigPanel
 							node={selectedNode}
 							agents={agents}
+							channels={channels}
 							onRename={(nextId) => renameNode(selectedNode.id, nextId)}
 							onConfigChange={(next) => updateConfig(selectedNode.id, next)}
 							onClose={() => {

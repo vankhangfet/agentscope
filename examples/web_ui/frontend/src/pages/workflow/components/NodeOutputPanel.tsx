@@ -19,6 +19,7 @@ const PLAIN_KEYS: Record<NodeKind, string[]> = {
 	condition: ['branch'],
 	loop: ['attempts'],
 	human_approval: ['verdict', 'note'],
+	notify: ['channel', 'sent'],
 };
 
 /** One label/value row for a plain (primitive) output field. */

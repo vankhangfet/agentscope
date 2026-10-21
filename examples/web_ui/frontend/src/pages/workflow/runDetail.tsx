@@ -32,6 +32,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
 import { useAgents } from '@/hooks/useAgents';
+import { useChannels } from '@/hooks/useChannels';
 import { useApproveRun, useCancelRun, useRetryRun } from '@/hooks/useWorkflowRuns';
 import { useTranslation } from '@/i18n/useI18n';
 
@@ -53,6 +54,7 @@ export function WorkflowRunDetailPage() {
 	const { t } = useTranslation();
 	const { runId = '' } = useParams<{ runId: string }>();
 	const { agents } = useAgents();
+	const { channels } = useChannels();
 
 	const [data, setData] = React.useState<WorkflowRunData | null>(null);
 	const [mode, setMode] = React.useState<'stream' | 'polling'>('stream');
@@ -397,6 +399,7 @@ export function WorkflowRunDetailPage() {
 							graph={data.graph}
 							nodeStates={data.node_states}
 							agents={agents}
+							channels={channels}
 							selectedNodeId={selectedNodeId}
 							onSelectNode={setSelectedNodeId}
 						/>
