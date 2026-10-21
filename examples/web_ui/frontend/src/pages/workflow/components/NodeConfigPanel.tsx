@@ -523,17 +523,17 @@ function NotifyForm({
 		<>
 			<div className="space-y-1.5">
 				<Label className="text-xs">{t('workflow.builder.config.notify.channel')}</Label>
-				{hasEnabled ? (
-					<ChannelSelect
-						className="w-full"
-						channels={channels}
-						value={config.channel_id || null}
-						placeholder={t('workflow.builder.config.notify.channelPlaceholder')}
-						onChange={(channel_id) => onPatch({ channel_id })}
-					/>
-				) : (
-					// No enabled channels: nothing to pick — say so where the
-					// picker would sit, instead of an empty dropdown.
+				{/* Always rendered: a channel disabled after it was
+				    configured still shows in the picker (flagged), instead
+				    of being hidden behind the empty-list hint below. */}
+				<ChannelSelect
+					className="w-full"
+					channels={channels}
+					value={config.channel_id || null}
+					placeholder={t('workflow.builder.config.notify.channelPlaceholder')}
+					onChange={(channel_id) => onPatch({ channel_id })}
+				/>
+				{!hasEnabled && (
 					<p className="text-[11px] leading-snug text-muted-foreground">
 						{t('workflow.builder.config.notify.channelEmptyHint')}
 					</p>

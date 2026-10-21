@@ -765,7 +765,10 @@
 				"notify": {
 					"channel": "渠道",
 					"channelPlaceholder": "选择渠道",
+					"channelDisabledTag": "（已禁用）",
 					"channelEmptyHint": "暂无已启用的渠道——请先创建渠道。",
+					"channelEmptyTitle": "暂无已启用的渠道",
+					"channelEmptyDescription": "请先在渠道页面创建渠道并启用，再回到此处选择。",
 					"messageTemplate": "消息模板",
 					"messageTemplateHint": "基于运行黑板的模板语法（双花括号路径）；渲染后的文本会发送到渠道。Telegram 单条消息上限 4096 字符。",
 					"maxRetries": "最大重试次数"

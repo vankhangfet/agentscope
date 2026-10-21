@@ -128,9 +128,15 @@ export function TemplatesDialog({ open, onOpenChange }: Props) {
 		selected.channel_slots.every((slot) => channelMap[slot.node_id]);
 	const canCreate = selected !== null && allMapped && name.trim() !== '';
 
+	// Fresh state every pick: backing out and choosing another template
+	// must not carry mappings over — slot node ids can repeat across
+	// templates (e.g. "notify_rejected") with different roles, so a
+	// carried-over entry would silently pre-map the new template.
 	const pick = (template: WorkflowTemplateView) => {
 		setSelected(template);
 		setName(template.name);
+		setAgentMap({});
+		setChannelMap({});
 	};
 
 	const handleCreate = async () => {

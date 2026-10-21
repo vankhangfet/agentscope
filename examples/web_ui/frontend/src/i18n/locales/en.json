@@ -765,7 +765,10 @@
 				"notify": {
 					"channel": "Channel",
 					"channelPlaceholder": "Select a channel",
+					"channelDisabledTag": "(disabled)",
 					"channelEmptyHint": "No enabled channels — create a channel first.",
+					"channelEmptyTitle": "No enabled channels",
+					"channelEmptyDescription": "Create one on the Channels page, then pick it here.",
 					"messageTemplate": "Message template",
 					"messageTemplateHint": "Mustache-style template over the run blackboard; the rendered text is sent to the channel. Telegram caps one message at 4096 characters.",
 					"maxRetries": "Max retries"

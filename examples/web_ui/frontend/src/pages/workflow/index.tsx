@@ -360,7 +360,12 @@ export function WorkflowPage() {
 				onOpenChange={setRunOpen}
 			/>
 
-			<TemplatesDialog open={templatesOpen} onOpenChange={setTemplatesOpen} />
+			{/* Lazily mounted so the dialog's agents/channels fetches fire
+			    on the first gallery open, not on every list-page visit —
+			    the trade-off is no exit animation on close. */}
+			{templatesOpen && (
+				<TemplatesDialog open={templatesOpen} onOpenChange={setTemplatesOpen} />
+			)}
 		</div>
 	);
 }
