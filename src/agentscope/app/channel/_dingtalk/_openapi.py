@@ -291,9 +291,9 @@ class _DingTalkOpenAPI:
                 "fileName": file_name,
                 "fileType": suffix,
             }
-        return await self._send_message(chat_id, msg_key, msg_param)
+        return await self._send_message(chat_id, msg_key, msg_param) is None
 
-    async def send_text(self, chat_id: str, text: str) -> bool:
+    async def send_text(self, chat_id: str, text: str) -> str | None:
         """Send Markdown-formatted text to an encoded target.
 
         Args:
@@ -302,7 +302,8 @@ class _DingTalkOpenAPI:
             text (`str`): Markdown-formatted message body.
 
         Returns:
-            `bool`: Whether DingTalk accepted the message.
+            `str | None`: ``None`` when DingTalk accepted the message,
+            otherwise the human-readable reason.
         """
         return await self._send_message(
             chat_id,
@@ -703,11 +704,19 @@ class _DingTalkOpenAPI:
         chat_id: str,
         msg_key: str,
         msg_param: dict[str, str],
-    ) -> bool:
-        """Send a template message to an encoded user or group target."""
+    ) -> str | None:
+        """Send a template message to an encoded user or group target.
+
+        Returns:
+            `str | None`: ``None`` when DingTalk accepted the message,
+            otherwise the human-readable reason. The reason is also
+            logged, so the bool-consuming callers (media sends) keep
+            their observability while :meth:`send_text` can hand it to
+            the workflow notify path.
+        """
         token = await self._access_token()
         if token is None:
-            return False
+            return "no application access token"
         target: dict[str, Any]
         if chat_id.startswith("group:"):
             url = f"{_API}/robot/groupMessages/send"
@@ -716,8 +725,9 @@ class _DingTalkOpenAPI:
             url = f"{_API}/robot/oToMessages/batchSend"
             target = {"userIds": [chat_id.removeprefix("user:")]}
         else:
-            logger.warning("Invalid DingTalk message target")
-            return False
+            reason = f"invalid message target {chat_id!r}"
+            logger.warning("DingTalk send refused: %s", reason)
+            return reason
         body: dict[str, Any] = {
             "robotCode": self._client_id,
             "msgKey": msg_key,
@@ -733,25 +743,33 @@ class _DingTalkOpenAPI:
             if response.status_code >= 400:
                 # The status alone never says which field was wrong;
                 # DingTalk puts that in the body.
+                reason = (
+                    f"HTTP {response.status_code}: "
+                    f"{response.text[:_ERROR_BODY_CHARS]}"
+                )
                 logger.warning(
                     "DingTalk rejected %s with HTTP %s: %s",
                     msg_key,
                     response.status_code,
                     response.text[:_ERROR_BODY_CHARS],
                 )
-                return False
+                return reason
             result = response.json()
             code = result.get("code")
             if code not in (None, "", 0, "0"):
+                reason = (
+                    f"code {code}: "
+                    f"{result.get('message') or result.get('msg') or ''}"
+                )
                 logger.warning(
                     "DingTalk message send rejected: code=%s",
                     code,
                 )
-                return False
-            return True
+                return reason
+            return None
         except Exception:  # pylint: disable=broad-except
             logger.exception("DingTalk message send failed")
-            return False
+            return "the send request failed"
 
     async def _wiki_get(
         self,

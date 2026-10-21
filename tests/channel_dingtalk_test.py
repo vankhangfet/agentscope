@@ -147,9 +147,9 @@ class _FakeMediaOpenAPI:
         self.send_calls.append((chat_id, data, file_name, media_type))
         return True
 
-    async def send_text(self, chat_id: str, text: str) -> bool:
+    async def send_text(self, chat_id: str, text: str) -> None:
         self.text_calls.append((chat_id, text))
-        return True
+        return None
 
     async def search_users(
         self,
@@ -934,7 +934,7 @@ class DingTalkChannelTest(  # pylint: disable=too-many-public-methods
         with self.assertLogs("as", level="WARNING") as captured:
             sent = await api.send_text("user:user-1", "hello")
 
-        self.assertFalse(sent)
+        self.assertIn("photoURL invalid", sent)
         self.assertIn("photoURL invalid", "\n".join(captured.output))
 
     async def test_approval_card_value_fits_the_platform_cap(self) -> None:
@@ -1715,7 +1715,7 @@ class DingTalkOpenAPITest(IsolatedAsyncioTestCase):
 
         sent = await api.send_text("group:cid-1", "hello")
 
-        self.assertTrue(sent)
+        self.assertIsNone(sent)
         request = http.posts[1][1]["json"]
         self.assertEqual(request["msgKey"], "sampleMarkdown")
         self.assertEqual(request["openConversationId"], "cid-1")
@@ -1731,7 +1731,7 @@ class DingTalkOpenAPITest(IsolatedAsyncioTestCase):
 
         sent = await api.send_text("user:user-1", "**hello**")
 
-        self.assertTrue(sent)
+        self.assertIsNone(sent)
         request = http.posts[1][1]["json"]
         self.assertEqual(request["msgKey"], "sampleMarkdown")
         self.assertEqual(request["userIds"], ["user-1"])
@@ -2031,9 +2031,9 @@ class DingTalkOpenAPITest(IsolatedAsyncioTestCase):
 class _RejectingTextOpenAPI(_FakeMediaOpenAPI):
     """Record sends like the media fake, but answer them rejected."""
 
-    async def send_text(self, chat_id: str, text: str) -> bool:
+    async def send_text(self, chat_id: str, text: str) -> str:
         self.text_calls.append((chat_id, text))
-        return False
+        return "the robot is not in the conversation"
 
 
 class DingTalkSendTextTest(IsolatedAsyncioTestCase):
@@ -2063,7 +2063,7 @@ class DingTalkSendTextTest(IsolatedAsyncioTestCase):
             await self._channel().send_text("hi")
         self.assertIn("default target", str(ctx.exception))
 
-    async def test_a_rejected_send_raises(self) -> None:
+    async def test_a_rejected_send_raises_with_the_reason(self) -> None:
         channel = self._channel(default_target="group:cid-1")
         openapi = _RejectingTextOpenAPI()
         channel._openapi = cast(_DingTalkOpenAPI, openapi)
@@ -2073,3 +2073,7 @@ class DingTalkSendTextTest(IsolatedAsyncioTestCase):
 
         self.assertEqual(openapi.text_calls, [("group:cid-1", "hi")])
         self.assertIn("group:cid-1", str(ctx.exception))
+        self.assertIn(
+            "the robot is not in the conversation",
+            str(ctx.exception),
+        )

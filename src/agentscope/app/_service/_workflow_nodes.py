@@ -450,6 +450,11 @@ class NodeHandlers:
         ``TeamsNotify`` tool's discipline — whoever builds a client
         closes it — applied to the factory-built path.
 
+        Delivery is at-least-once: a retried attempt (the engine's
+        response-timeout budget) or a crash-recovery re-dispatch may
+        send a message an earlier attempt already delivered — the
+        platforms offer no idempotency key to suppress that.
+
         Args:
             user_id (`str`): The run's owner.
             run (`WorkflowRunRecord`): The run the node belongs to.

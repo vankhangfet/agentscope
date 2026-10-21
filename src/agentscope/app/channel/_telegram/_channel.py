@@ -272,7 +272,7 @@ class TelegramChannel(ChannelBase):
         if confirm is not None:
             await self._present_confirm(event, confirm)
 
-    async def _send_message(self, chat_id: str, text: str) -> bool:
+    async def _send_message(self, chat_id: str, text: str) -> str | None:
         """POST one plain-text ``sendMessage`` (no parse_mode in v1).
 
         Args:
@@ -280,10 +280,11 @@ class TelegramChannel(ChannelBase):
             text (`str`): The message text, within the length cap.
 
         Returns:
-            `bool`: Whether Telegram accepted the message. A rejection
-            is logged either way — replies stay best-effort, while
-            :meth:`send_text` turns the flag into an error so a
-            workflow notification can be retried.
+            `str | None`: ``None`` when Telegram accepted the message,
+            otherwise the API's failure description. A rejection is
+            logged either way — replies stay best-effort, while
+            :meth:`send_text` turns the description into an error so
+            a workflow notification can be retried.
         """
         client = await self._ensure_http()
         resp = await client.post(
@@ -292,14 +293,15 @@ class TelegramChannel(ChannelBase):
         )
         data = resp.json()
         if data.get("ok") is not True:
+            description = str(data.get("description", data))
             logger.warning(
                 "Telegram '%s' sendMessage to '%s' failed: %s",
                 self._channel_id,
                 chat_id,
-                data.get("description", data),
+                description,
             )
-            return False
-        return True
+            return description
+        return None
 
     async def send_text(self, text: str) -> None:
         """Send one notification to the channel's default chat.
@@ -315,7 +317,8 @@ class TelegramChannel(ChannelBase):
 
         Raises:
             `ValueError`: No default chat could be resolved.
-            `RuntimeError`: Telegram rejected the send.
+            `RuntimeError`: Telegram rejected the send, with the API's
+                description of why.
         """
         chat_id = self._config.default_chat_id
         if not chat_id:
@@ -329,10 +332,11 @@ class TelegramChannel(ChannelBase):
                 "in its settings, or scope it to exactly one allowed "
                 "chat.",
             )
-        if not await self._send_message(chat_id, text):
+        reason = await self._send_message(chat_id, text)
+        if reason is not None:
             raise RuntimeError(
                 f"Telegram rejected the notification to chat "
-                f"{chat_id!r}.",
+                f"{chat_id!r}: {reason}.",
             )
 
     async def _present_confirm(

@@ -1007,7 +1007,9 @@ class FeishuChannel(ChannelBase):
 
         Raises:
             `ValueError`: No default receive id is configured.
-            `RuntimeError`: Feishu refused the send.
+            `RuntimeError`: Feishu refused the send — a transport
+                failure, or a rejection body whose ``msg`` names what
+                the operator has to fix.
         """
         receive_id = self._config.default_receive_id
         if not receive_id:
@@ -1021,10 +1023,18 @@ class FeishuChannel(ChannelBase):
             self._config.default_receive_id_type,
             text,
         )
-        if data is None:
+        # The API helper answers a parsed body for a platform
+        # rejection (non-zero code) and None only for a transport
+        # failure; the package's success contract is ``code == 0``,
+        # the same test the SendMessage tool's ack applies.
+        if data is None or data.get("code") != 0:
+            reason = (
+                (data or {}).get("msg")
+                or "the platform rejected the request"
+            )
             raise RuntimeError(
                 f"Feishu refused the notification to receive id "
-                f"{receive_id!r}.",
+                f"{receive_id!r}: {reason}.",
             )
 
     async def send_message_to(

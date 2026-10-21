@@ -705,7 +705,8 @@ class DingTalkChannel(ChannelBase):
 
         Raises:
             `ValueError`: No default target is configured.
-            `RuntimeError`: DingTalk refused the send.
+            `RuntimeError`: DingTalk refused the send, with the
+                platform's reason.
         """
         target = self._config.default_target
         if not target:
@@ -714,10 +715,11 @@ class DingTalkChannel(ChannelBase):
                 "target for workflow notifications: set default_target "
                 "in its settings.",
             )
-        if not await self.send_message_to(target, text):
+        reason = await self._api().send_text(target, text)
+        if reason is not None:
             raise RuntimeError(
                 f"DingTalk refused the notification to target "
-                f"{target!r}.",
+                f"{target!r}: {reason}.",
             )
 
     async def send_message_to(self, target: str, text: str) -> bool:
@@ -728,9 +730,11 @@ class DingTalkChannel(ChannelBase):
             text (`str`): Markdown-formatted message body.
 
         Returns:
-            `bool`: Whether DingTalk accepted the message.
+            `bool`: Whether DingTalk accepted the message. (The
+            underlying helper answers a reason on refusal; the tool
+            surface only needs the boolean.)
         """
-        return await self._api().send_text(target, text)
+        return await self._api().send_text(target, text) is None
 
     async def send_file_to(
         self,

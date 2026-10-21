@@ -55,6 +55,7 @@ class _FakeTelegramHTTP:
         self.closed = False
         self.on_get: Callable[[], None] | None = None
         self.post_ok = True
+        self.post_description = "Bad Request: message text is too long"
 
     async def get(self, url: str, **kwargs: Any) -> _FakeResponse:
         self.gets.append((url, kwargs))
@@ -70,9 +71,11 @@ class _FakeTelegramHTTP:
 
     async def post(self, url: str, **kwargs: Any) -> _FakeResponse:
         self.posts.append((url, kwargs))
-        return _FakeResponse(
-            {"ok": self.post_ok, "result": {"message_id": 1}},
-        )
+        if not self.post_ok:
+            return _FakeResponse(
+                {"ok": False, "description": self.post_description},
+            )
+        return _FakeResponse({"ok": True, "result": {"message_id": 1}})
 
     async def aclose(self) -> None:
         self.closed = True
@@ -539,9 +542,10 @@ class TelegramSendTextTest(IsolatedAsyncioTestCase):
                 await self._notify_channel(**config).send_text("hi")
             self.assertIn("default chat", str(ctx.exception))
 
-    async def test_a_rejected_send_raises(self) -> None:
+    async def test_a_rejected_send_raises_with_the_reason(self) -> None:
         """A non-ok sendMessage answer must raise, not read as
-        delivered — the notify node counts on the failure to retry."""
+        delivered — and the API's description ("message text is too
+        long") belongs in the error, not only in the log."""
         channel = self._notify_channel(default_chat_id="999")
         http = _FakeTelegramHTTP()
         http.post_ok = False
@@ -555,3 +559,4 @@ class TelegramSendTextTest(IsolatedAsyncioTestCase):
                 await channel.send_text("hi")
 
         self.assertIn("999", str(ctx.exception))
+        self.assertIn("message text is too long", str(ctx.exception))

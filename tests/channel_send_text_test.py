@@ -154,3 +154,24 @@ class SendTextContractTest(IsolatedAsyncioTestCase):
             with self.assertRaises(RuntimeError) as ctx:
                 await channel.send_text("hi")
         self.assertIn("oc_chat", str(ctx.exception))
+
+    async def test_feishu_reports_a_rejection_body(self) -> None:
+        """A rejected send answers a non-None body with a non-zero
+        code (bot removed from the chat, typo'd receive id, revoked
+        permission) — the exact shape the API helper hands back after
+        logging it. Reading it as delivered would silence precisely
+        the failure class the notify node exists to surface."""
+        channel = _feishu(default_receive_id="oc_chat")
+
+        async def rejected(
+            receive_id: str,  # pylint: disable=unused-argument
+            receive_id_type: str,  # pylint: disable=unused-argument
+            text: str,  # pylint: disable=unused-argument
+        ) -> dict:
+            return {"code": 230002, "msg": "receive_id does not exist"}
+
+        with patch.object(channel, "send_message_to", rejected):
+            with self.assertRaises(RuntimeError) as ctx:
+                await channel.send_text("hi")
+
+        self.assertIn("receive_id does not exist", str(ctx.exception))

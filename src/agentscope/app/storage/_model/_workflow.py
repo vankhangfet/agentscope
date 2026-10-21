@@ -175,7 +175,8 @@ class NotifyNodeConfig(BaseModel):
         description=(
             "Mustache-style template over the run blackboard, e.g. "
             "``{{nodes.researcher.output.text}}``; the rendered text "
-            "is sent to the channel."
+            "is sent to the channel. Telegram caps one message at "
+            "4096 characters."
         ),
         json_schema_extra={"format": "textarea"},
     )
@@ -184,7 +185,11 @@ class NotifyNodeConfig(BaseModel):
         default=2,
         ge=0,
         le=10,
-        description="Retries before the node fails the run.",
+        description=(
+            "Retries before the node fails the run. Delivery is "
+            "at-least-once: a retry or crash-recovery re-dispatch may "
+            "send a message an earlier attempt already delivered."
+        ),
     )
 
 
